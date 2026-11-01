@@ -1,7 +1,7 @@
 # GripTrace — what are the worker's hands touching?
 
 **Problem statement: PS2 — "What is the hand touching?"** (built on a strengthened PS1 hand tracker)
-**Hardware: laptop CPU only — no GPU, no paid APIs, no cloud upload.**
+**Hardware: laptop CPU only, no GPU. Video never leaves the laptop; the optional AI naming step sends small hand crops to the Claude API only if you add a key.**
 
 GripTrace turns head-camera factory video into a per-hand timeline of what each hand is
 doing: *free*, *holding a portable object* (and which one), or *on a fixed surface*. It also
