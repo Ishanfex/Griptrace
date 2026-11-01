@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GripTrace — Hand–Object Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* GripTrace — industrial control-room UI. Works offline: fonts fall back to Bahnschrift / Segoe / Consolas. */
+:root{
+  --bg:#0c0e10; --bg2:#101316; --panel:#14171a; --panel2:#181c20; --line:#252a30; --line2:#323840;
+  --ink:#ece8df; --ink2:#c3c0b8; --muted:#868b91; --dim:#5a6067;
+  --left:#2ec4b6; --right:#ffb020; --hazard:#ff5a4e; --ok:#58c472; --rec:#a78bfa; --interp:#6b7480; --miss:#ff5a4e;
+  --portable:#ffb020; --fixed:#7ea6c8;
+  --display:"Barlow Condensed","Bahnschrift SemiCondensed","Bahnschrift","Arial Narrow",sans-serif;
+  --body:"Barlow","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",monospace;
+  --r:4px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+body{min-height:100vh;background:
+  radial-gradient(circle at 1px 1px,#1a1e22 1px,transparent 1.2px) 0 0/22px 22px,var(--bg)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.hidden{display:none!important}
+.mono{font-family:var(--mono)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.L{color:var(--left)}.R{color:var(--right)}
+
+/* ---------- top bar ---------- */
+.top{position:sticky;top:0;z-index:20;background:rgba(12,14,16,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top::before{content:"";display:block;height:3px;background:repeating-linear-gradient(-45deg,var(--right) 0 9px,#15120a 9px 18px);opacity:.9}
+.bar{display:flex;align-items:center;gap:18px;padding:10px 22px;min-height:58px}
+.brand{display:flex;align-items:center;gap:11px;flex:none}
+.brand svg{width:30px;height:30px}
+.brand b{display:block;font:700 21px/1 var(--display);letter-spacing:.12em}
+.brand span{display:block;font:500 10.5px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.clipsel{position:relative;flex:none}
+.clipsel>button{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);background:var(--panel);padding:7px 12px;border-radius:var(--r);min-width:230px;text-align:left}
+.clipsel>button:hover{border-color:var(--muted)}
+.clipsel .cn{font:600 13px/1.2 var(--mono)}
+.clipsel .cm{font:11px/1.2 var(--mono);color:var(--muted)}
+.clipsel .car{margin-left:auto;color:var(--muted)}
+.menu{position:absolute;top:calc(100% + 6px);left:0;min-width:100%;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r);padding:6px;box-shadow:0 18px 40px rgba(0,0,0,.5);max-height:60vh;overflow:auto}
+.menu button{display:flex;justify-content:space-between;gap:20px;width:100%;padding:8px 10px;border-radius:3px;font:13px var(--mono);text-align:left}
+.menu button:hover,.menu button.on{background:#20262c}
+.menu button span{color:var(--muted)}
+nav.tabs{display:flex;gap:2px;margin-left:auto}
+nav.tabs button{white-space:nowrap;padding:9px 12px;font:600 15px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid transparent;border-radius:0}
+nav.tabs button i{font:600 10px var(--mono);font-style:normal;color:var(--dim);margin-right:7px;letter-spacing:0}
+nav.tabs button:hover{color:var(--ink)}
+button:focus{outline:none}button:focus-visible{outline:2px solid var(--right);outline-offset:2px}
+nav.tabs button.on{color:var(--ink);border-bottom-color:var(--right)}
+nav.tabs button.on i{color:var(--right)}
+.status{display:flex;align-items:center;gap:8px;font:600 10.5px var(--mono);letter-spacing:.12em;color:var(--muted);flex:none;text-transform:uppercase}
+.led{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(88,196,114,.15),0 0 10px var(--ok)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);font:600 13px var(--body);white-space:nowrap}
+.btn:hover{border-color:var(--ink2)}
+.btn.pri{background:var(--right);border-color:var(--right);color:#1a1204}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn svg{width:14px;height:14px}
+
+main{padding:22px;max-width:1560px;margin:0 auto}
+
+/* ---------- panels ---------- */
+.panel{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.panel.hud{--c:var(--line2);background:
+  linear-gradient(var(--c),var(--c)) top left/14px 2px no-repeat,linear-gradient(var(--c),var(--c)) top left/2px 14px no-repeat,
+  linear-gradient(var(--c),var(--c)) top right/14px 2px no-repeat,linear-gradient(var(--c),var(--c)) top right/2px 14px no-repeat,
+  linear-gradient(var(--c),var(--c)) bottom left/14px 2px no-repeat,linear-gradient(var(--c),var(--c)) bottom left/2px 14px no-repeat,
+  linear-gradient(var(--c),var(--c)) bottom right/14px 2px no-repeat,linear-gradient(var(--c),var(--c)) bottom right/2px 14px no-repeat,var(--panel)}
+.ph{display:flex;align-items:baseline;gap:12px;padding:14px 18px 0}
+.ph h3{font:600 16px/1 var(--display);letter-spacing:.1em;text-transform:uppercase}
+.ph .id{font:600 10px var(--mono);color:var(--dim)}
+.ph .aside{margin-left:auto;font:12px var(--mono);color:var(--muted)}
+.pb{padding:14px 18px 18px}
+.note{font-size:12.5px;color:var(--muted)}
+.grid{display:grid;gap:16px}
+
+/* ---------- welcome ---------- */
+#welcome{display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:center;min-height:calc(100vh - 140px);padding:20px 10px}
+#welcome h1{font:700 clamp(46px,6vw,84px)/.92 var(--display);letter-spacing:.01em;text-transform:uppercase}
+#welcome h1 em{font-style:normal;color:var(--right)}
+#welcome .lead{font-size:18px;color:var(--ink2);max-width:540px;margin:22px 0 28px}
+.steps{display:grid;gap:10px;margin:0 0 28px;max-width:540px}
+.steps div{display:flex;gap:14px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.steps b{font:600 12px var(--mono);color:var(--right);flex:none;width:26px}
+.steps span{color:var(--ink2)}
+.steps code{font:12.5px var(--mono);color:var(--ink);background:#1b2025;padding:1px 6px;border-radius:3px}
+.wbtns{display:flex;gap:10px;flex-wrap:wrap}
+.priv{display:flex;gap:10px;align-items:center;margin-top:22px;font:12px var(--mono);color:var(--muted)}
+#demoHand{width:100%;aspect-ratio:1/1;max-height:70vh}
+.dropzone{position:fixed;inset:0;z-index:50;background:rgba(12,14,16,.86);display:none;place-items:center;border:3px dashed var(--right)}
+.dropzone.on{display:grid}
+.dropzone div{font:700 44px var(--display);text-transform:uppercase;letter-spacing:.06em}
+
+/* ---------- fleet ---------- */
+.fleethead{display:flex;align-items:flex-end;gap:30px;margin:6px 0 20px;flex-wrap:wrap}
+.fleethead h1{font:700 44px/1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.agg{display:flex;gap:28px;margin-left:auto;flex-wrap:wrap}
+.agg div{border-left:2px solid var(--line2);padding-left:12px}
+.agg b{display:block;font:700 30px/1 var(--display)}
+.agg span{font:11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.ccard{text-align:left;padding:16px 16px 14px;transition:border-color .15s,transform .15s}
+.ccard:hover{border-color:var(--muted);transform:translateY(-2px)}
+.ccard .t{font:600 14px var(--mono)}
+.ccard .s{font:11px var(--mono);color:var(--muted);margin:3px 0 12px;text-transform:uppercase;letter-spacing:.08em}
+.ccard canvas{width:100%;height:38px;display:block}
+.ccard .row{display:flex;justify-content:space-between;margin-top:12px;font:12px var(--mono);color:var(--muted)}
+.ccard .row b{color:var(--ink);font-weight:600}
+.ccard{cursor:pointer}
+.ccard.pend{cursor:default;border-style:dashed;background:var(--bg2)}
+.ccard.pend:hover{transform:none}
+.ccard .ghost{height:38px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:2px;font:11px var(--mono);color:var(--dim);letter-spacing:.1em;text-transform:uppercase}
+.jobbar{height:38px;position:relative;background:#1b2026;border-radius:2px;overflow:hidden}
+.jobbar i{position:absolute;inset:0 auto 0 0;background:repeating-linear-gradient(-45deg,var(--right) 0 10px,#d99413 10px 20px);background-size:28px 28px;animation:stripe 1s linear infinite}
+.jobbar>span{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font:600 11.5px var(--mono);color:#fff;text-shadow:0 1px 2px #000}
+@keyframes stripe{to{background-position:28px 0}}
+.ccard.fail .ghost{color:var(--hazard);border-color:var(--hazard)}
+.fleetacts{display:flex;gap:8px;align-items:center}
+.srvnote{font:12px var(--mono);color:var(--muted);margin:-8px 0 18px}
+.keynote{border:1px solid var(--line2);border-left:3px solid var(--right);background:var(--bg2);padding:12px 14px;margin:-6px 0 18px;font-size:13.5px;color:var(--ink2);border-radius:var(--r)}
+.keynote code{font:12.5px var(--mono);background:#1b2025;padding:1px 6px;border-radius:3px;color:var(--ink)}
+.ainote{margin-bottom:16px}
+.ainote .grid2{display:grid;grid-template-columns:1.1fr 1fr;gap:26px}
+.ainote .set{font:600 22px/1.15 var(--display);letter-spacing:.04em;text-transform:uppercase;margin:2px 0 10px}
+.ainote .sum{font-size:15.5px;color:var(--ink);line-height:1.55}
+.ainote .obs{list-style:none;margin-top:12px;display:grid;gap:6px}
+.ainote .obs li{font-size:13.5px;color:var(--ink2);padding-left:16px;position:relative}
+.ainote .obs li::before{content:"";position:absolute;left:0;top:8px;width:7px;height:7px;background:var(--right);border-radius:1px}
+.steps2{list-style:none;display:grid;gap:0;counter-reset:st}
+.steps2 li{display:grid;grid-template-columns:28px 108px 1fr;gap:10px;align-items:baseline;padding:8px 6px;border-top:1px solid var(--line);cursor:pointer;counter-increment:st;font-size:14px}
+.steps2 li:first-child{border-top:0}
+.steps2 li:hover{background:#1a1f24}
+.steps2 li::before{content:counter(st,decimal-leading-zero);font:600 11px var(--mono);color:var(--right)}
+.steps2 .t{font:12px var(--mono);color:var(--muted)}
+.aibadge{display:inline-flex;align-items:center;gap:6px;font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--right);border:1px solid #5a4314;background:#241b08;padding:3px 8px;border-radius:2px}
+.ccard .ai{margin-top:10px;font:11px var(--mono);color:var(--muted);display:flex;justify-content:space-between;gap:10px;align-items:center}
+.ccard .ai b{color:var(--right);font-weight:600}
+@media (max-width:1180px){.ainote .grid2{grid-template-columns:1fr}}
+
+/* ---------- overview ---------- */
+.hero{display:flex;align-items:flex-end;gap:24px;margin:4px 0 18px;flex-wrap:wrap}
+.hero h1{font:700 clamp(36px,4.4vw,58px)/.95 var(--display);letter-spacing:.01em;margin-top:8px;word-break:break-all}
+.hero .meta{font:12.5px var(--mono);color:var(--muted);margin-top:10px}
+.hero .acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.kpi{padding:16px 18px 14px;min-height:140px;display:flex;flex-direction:column}
+.kpi .v{font:700 52px/1 var(--display);margin:12px 0 4px;letter-spacing:.01em}
+.kpi .v small{font-size:22px;color:var(--muted);margin-left:3px}
+.kpi .s{font:12px var(--mono);color:var(--muted)}
+.kpi .s b{color:var(--ink);font-weight:600}
+.kpi canvas{width:100%;height:30px;margin-top:auto;padding-top:10px;display:block}
+.tapebox{margin-bottom:16px}
+#tape{width:100%;height:150px;display:block;cursor:crosshair}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font:11.5px var(--mono);color:var(--muted)}
+.legend i{display:inline-block;width:18px;height:10px;margin-right:6px;vertical-align:-1px;border-radius:2px}
+.sw-hold-l{background:var(--left)}.sw-hold-r{background:var(--right)}
+.sw-surf{background:repeating-linear-gradient(-45deg,var(--ink2) 0 2px,transparent 2px 5px);outline:1px solid var(--line2)}
+.sw-free{background:#232a31}
+.sw-nv{background:repeating-linear-gradient(45deg,#3a2826 0 2px,#1a1414 2px 5px)}
+.cols3{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:16px;margin-bottom:16px}
+.split .h{display:flex;justify-content:space-between;align-items:baseline;margin:4px 0 7px}
+.split .h b{font:600 17px var(--display);letter-spacing:.08em;text-transform:uppercase}
+.stack{display:flex;height:16px;border-radius:2px;overflow:hidden;background:#1c2126}
+.stack span{display:block;height:100%}
+.split table{width:100%;margin:10px 0 20px;border-collapse:collapse;font:12px var(--mono);color:var(--muted)}
+.split td{padding:3px 0}.split td:last-child{text-align:right;color:var(--ink)}
+.objs{display:grid;gap:9px}
+.obj{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center}
+.obj .n{font-weight:600;font-size:14px;text-transform:capitalize}
+.obj .c{font:12px var(--mono);color:var(--muted)}
+.obj .b{grid-column:1/3;display:flex;height:5px;background:#1c2126;border-radius:2px;overflow:hidden}
+.facts{display:grid;gap:0}
+.fact{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+.fact:first-child{border-top:0;padding-top:2px}
+.fact span{color:var(--ink2);font-size:14px}
+.fact b{font:700 26px/1 var(--display)}
+.moments{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.mom{position:relative;text-align:left;border:1px solid var(--line);border-radius:3px;overflow:hidden;background:#0b0d0f}
+.mom:hover{border-color:var(--muted)}
+.mom canvas{display:block;width:100%;aspect-ratio:16/9}
+.mom .cap{padding:8px 10px 9px;font:12px var(--mono);color:var(--muted)}
+.mom .cap b{display:block;color:var(--ink);font:600 13px var(--body);text-transform:capitalize;margin-bottom:1px}
+.mom .mtc{position:absolute;top:7px;left:7px;font:600 11px var(--mono);background:rgba(0,0,0,.65);padding:2px 6px;border-radius:2px}
+.cols2{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:16px}
+.log{list-style:none;max-height:320px;overflow:auto;font-size:13.5px}
+.log li{display:grid;grid-template-columns:66px 12px 1fr;gap:10px;align-items:center;padding:7px 4px;border-top:1px solid var(--line);cursor:pointer}
+.log li:hover{background:#1a1f24}
+.log li.now{background:#1f2328;box-shadow:inset 2px 0 var(--right)}
+.log .t{font:12px var(--mono);color:var(--muted)}
+.log .d{width:8px;height:8px;border-radius:50%}
+.honest{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-left:3px solid var(--fixed);border-radius:var(--r);background:var(--bg2);margin-top:16px;font-size:13.5px;color:var(--ink2)}
+.honest b{color:var(--ink)}
+
+/* ---------- replay ---------- */
+.rgrid{display:grid;grid-template-columns:1fr 330px;gap:16px}
+.stage{position:relative;padding:10px}
+.panes{display:grid;gap:10px}
+.panes.split{grid-template-columns:1fr 1fr}
+.pane{position:relative;background:#07090a;border-radius:2px;overflow:hidden}
+.pane canvas{display:block;width:100%;height:auto}
+.hudtag{position:absolute;top:10px;left:10px;font:600 11px var(--mono);letter-spacing:.1em;padding:4px 8px;border-radius:2px;background:rgba(0,0,0,.6);text-transform:uppercase}
+.hudtag.base{color:#ff8a80}.hudtag.ours{color:var(--ok)}
+.tc{position:absolute;bottom:10px;left:10px;font:600 13px var(--mono);background:rgba(0,0,0,.6);padding:4px 9px;border-radius:2px;letter-spacing:.04em}
+.alert{position:absolute;top:10px;right:10px;font:700 14px var(--display);letter-spacing:.12em;padding:6px 12px;background:var(--hazard);color:#1a0604;border-radius:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.45}}
+.transport{display:flex;align-items:center;gap:8px;padding:10px 4px 2px;flex-wrap:wrap}
+.ib{width:36px;height:34px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel2)}
+.ib:hover{border-color:var(--ink2)}
+.ib.play{width:46px;background:var(--right);border-color:var(--right);color:#1a1204}
+.ib svg{width:14px;height:14px}
+select{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:var(--r);padding:7px 8px;font:12px var(--mono)}
+.time{font:13px var(--mono);color:var(--ink2);margin-left:6px}
+.tgs{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.tg{padding:7px 11px;border:1px solid var(--line2);border-radius:var(--r);font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tg.on{color:var(--ink);border-color:var(--ink2);background:#1d2227}
+.tg.on::before{content:"● ";color:var(--ok)}
+#tl{width:100%;height:150px;display:block;cursor:pointer}
+.tlbox{margin-top:16px}
+.rail{display:flex;flex-direction:column;gap:16px}
+.hc{padding:14px 16px 16px;border-left:3px solid var(--c)}
+.hc .top2{display:flex;justify-content:space-between;align-items:center}
+.hc .who{font:700 15px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--c)}
+.hc .src{font:10.5px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.hc .st{font:700 38px/1 var(--display);letter-spacing:.03em;margin:12px 0 4px}
+.hc .on{font-size:15px;color:var(--ink2);min-height:22px;text-transform:capitalize}
+.hc .prog{height:3px;background:#20262c;margin-top:12px;border-radius:2px;overflow:hidden}
+.hc .prog i{display:block;height:100%;background:var(--c)}
+.hc .dur{font:11.5px var(--mono);color:var(--muted);margin-top:6px;min-height:16px}
+.rail .log{max-height:none;flex:1}
+.raillog{display:flex;flex-direction:column;min-height:0;flex:1}
+.raillog .pb{overflow:auto;max-height:400px}
+
+/* ---------- quality ---------- */
+.qtop{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px}
+.db{display:grid;gap:18px}
+.dbrow .h{display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px}
+.dbrow .h span:last-child{font:12.5px var(--mono);color:var(--muted)}
+.dbrow .h b{color:var(--ink)}
+.dbtrack{position:relative;height:18px}
+.dbtrack .rail2{position:absolute;top:8px;left:0;right:0;height:2px;background:#232930}
+.dbtrack .link{position:absolute;top:7px;height:4px;background:linear-gradient(90deg,#5a6067,var(--ok))}
+.dbtrack .link.worse{background:linear-gradient(90deg,var(--ok),#5a6067)}
+.dbtrack .p{position:absolute;top:2px;width:14px;height:14px;margin-left:-7px;border-radius:50%;border:2px solid var(--bg)}
+.dbtrack .p.b{background:#7a8088}.dbtrack .p.o{background:var(--ok)}
+.dbkey{display:flex;gap:16px;font:11.5px var(--mono);color:var(--muted)}
+.dbkey i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.fixes{list-style:none;display:grid;gap:0}
+.fixes li{padding:10px 0 10px 22px;border-top:1px solid var(--line);position:relative;color:var(--ink2);font-size:14px}
+.fixes li:first-child{border-top:0}
+.fixes li::before{content:"";position:absolute;left:2px;top:17px;width:9px;height:5px;border-left:2px solid var(--ok);border-bottom:2px solid var(--ok);transform:rotate(-45deg)}
+.fixes b{color:var(--ink)}
+.qrow{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.srcbars{display:grid;gap:16px}
+.ms{display:grid;gap:7px}
+.ms .r{display:grid;grid-template-columns:90px 1fr 64px;gap:10px;align-items:center;font:12px var(--mono);color:var(--muted)}
+.ms .r i{display:block;height:10px;background:var(--fixed);border-radius:1px}
+.ms .r span:last-child{text-align:right;color:var(--ink)}
+table.fl{width:100%;border-collapse:collapse;font-size:13.5px}
+table.fl th{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line2)}
+table.fl td{padding:9px 10px;border-bottom:1px solid var(--line)}
+table.fl td.n{font-family:var(--mono);text-align:right}
+table.fl th.n{text-align:right}
+table.fl tr.cl{cursor:pointer}table.fl tr.cl:hover{background:#1a1f24}
+table.fl tr.tot td{font-weight:700;border-bottom:0}
+
+/* ---------- audit ---------- */
+.agrid{display:grid;grid-template-columns:1fr 360px;gap:16px}
+.qg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0 18px}
+.qg button{padding:9px 8px;border:1px solid var(--line2);border-radius:var(--r);font-size:13px;text-align:left;display:flex;justify-content:space-between;background:var(--panel2)}
+.qg button span{font:11px var(--mono);color:var(--dim)}
+.qg button.on{background:var(--c);color:#111;border-color:var(--c)}
+.qg button.on span{color:#111}
+.progress{height:4px;background:#20262c;border-radius:2px;overflow:hidden;margin:10px 0 4px}
+.progress i{display:block;height:100%;background:var(--right)}
+.astats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.astats div{border-left:2px solid var(--line2);padding-left:10px}
+.astats b{display:block;font:700 28px/1 var(--display)}
+.astats span{font:11px var(--mono);color:var(--muted)}
+
+#tip{position:fixed;z-index:60;pointer-events:none;background:#0a0c0e;border:1px solid var(--line2);padding:8px 10px;border-radius:3px;font:12px/1.5 var(--mono);display:none;max-width:300px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#tip b{color:var(--ink)}
+
+@media (max-width:1180px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .cols3,.cols2,.qtop,.qrow{grid-template-columns:1fr}
+  .rgrid,.agrid{grid-template-columns:1fr}
+  .moments{grid-template-columns:repeat(3,1fr)}
+  .status{display:none}
+}
+@media (max-width:760px){
+  main{padding:14px 16px}
+  .bar{flex-wrap:wrap;gap:10px;padding:10px 16px}
+  nav.tabs{margin-left:0;width:100%;overflow-x:auto}
+  nav.tabs button{padding:8px 10px;font-size:14px}
+  .clipsel>button{min-width:0}
+  #welcome{grid-template-columns:1fr}
+  #demoHand{max-height:300px}
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpi .v{font-size:40px}
+  .moments{grid-template-columns:repeat(2,1fr)}
+  .panes.split{grid-template-columns:1fr}
+}
+@media print{
+  body{background:#fff;color:#111}
+  .top,.hero .acts,#welcome,.dropzone{display:none!important}
+  .panel{background:#fff!important;border-color:#ccc;break-inside:avoid}
+  :root{--ink:#111;--ink2:#333;--muted:#666;--line:#ddd;--bg2:#f6f6f6;--panel:#fff}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="3" fill="#14171a" stroke="#323840"/>
+        <path d="M9 23 L9 13 M13 23 L13 9 M17 23 L17 10 M21 23 L21 14" stroke="#2ec4b6" stroke-width="2.4" stroke-linecap="round"/>
+        <rect x="7" y="17" width="16" height="7" rx="1.5" fill="none" stroke="#ffb020" stroke-width="2"/></svg>
+      <div><b>GRIPTRACE</b><span>hand–object intelligence</span></div>
+    </div>
+    <div class="clipsel hidden" id="clipSel">
+      <button id="clipBtn"><div><div class="cn" id="clipName">—</div><div class="cm" id="clipMeta"></div></div><span class="car">▾</span></button>
+      <div class="menu hidden" id="clipMenu"></div>
+    </div>
+    <nav class="tabs hidden" id="tabs">
+      <button data-v="fleet" id="tabFleet" class="hidden"><i>00</i>Clips</button>
+      <button data-v="overview"><i>01</i>Overview</button>
+      <button data-v="replay"><i>02</i>Replay</button>
+      <button data-v="quality"><i>03</i>Tracking quality</button>
+      <button data-v="audit"><i>04</i>Audit</button>
+    </nav>
+    <div class="status" title="Files are read by this browser only. Nothing is uploaded."><span class="led"></span>Local only</div>
+    <button class="btn" id="loadBtn"><svg viewBox="0 0 16 16"><path d="M8 11V2M4.5 5.5 8 2l3.5 3.5M2 11v3h12v-3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Load</button>
+  </div>
+</header>
+
+<main>
+<!-- ============ WELCOME ============ -->
+<section id="welcome">
+  <div>
+    <div class="eyebrow" style="margin-bottom:18px">Head-camera video · factory floor · CPU only</div>
+    <h1>See what every <em>hand</em> touches.</h1>
+    <p class="lead">GripTrace turns egocentric shop-floor video into a per-hand record of what was held, what was touched and for how long — with the video to prove every second of it.</p>
+    <div class="steps">
+      <div><b>01</b><span>Run <code>run_all.bat</code>. Each clip gets an <code>outputs\&lt;clip&gt;\</code> folder.</span></div>
+      <div><b>02</b><span>Open the <code>outputs</code> folder here — and the clips folder too, to see the video.</span></div>
+      <div><b>03</b><span>Start on the overview, then click any moment to replay it.</span></div>
+    </div>
+    <div class="wbtns">
+      <button class="btn pri" id="folderBtn"><svg viewBox="0 0 16 16"><path d="M1.5 3.5h5l1.5 1.5h6.5v8h-13z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Open a folder</button>
+      <button class="btn" id="pickBtn">Choose files</button>
+    </div>
+    <div class="priv"><span class="led"></span>Runs entirely in this browser. Footage never leaves this computer.</div>
+  </div>
+  <canvas id="demoHand" width="900" height="900"></canvas>
+</section>
+
+<!-- ============ FLEET ============ -->
+<section id="fleet" class="hidden">
+  <div class="fleethead">
+    <div><div class="eyebrow" id="fleetEyebrow">All loaded clips</div><h1 id="fleetTitle">Clips</h1></div>
+    <div class="fleetacts hidden" id="fleetActs"><button class="btn" id="anAll">Analyse all new</button><button class="btn pri" id="addClipBtn">+ Add clip</button></div>
+    <div class="agg" id="fleetAgg"></div>
+  </div>
+  <div class="keynote hidden" id="keyNote"></div>
+  <div class="srvnote hidden" id="srvNote"></div>
+  <div class="cards" id="cards"></div>
+</section>
+
+<!-- ============ OVERVIEW ============ -->
+<section id="overview" class="hidden">
+  <div class="hero">
+    <div><div class="eyebrow" id="ovEyebrow"></div><h1 id="ovTitle"></h1><div class="meta" id="ovMeta"></div></div>
+    <div class="acts">
+      <button class="btn" id="csvBtn">contacts.csv</button>
+      <button class="btn" id="mdBtn">Copy summary</button>
+      <button class="btn" id="printBtn">Print</button>
+      <button class="btn pri" id="toReplay"><svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Replay</button>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="panel hud ainote hidden" id="aiNote"></div>
+  <div class="panel hud tapebox">
+    <div class="ph"><span class="id">A</span><h3>Activity tape</h3><span class="aside">click anywhere to replay that moment</span></div>
+    <div class="pb"><canvas id="tape"></canvas>
+      <div class="legend" style="margin-top:10px" id="tapeLegend"></div></div>
+  </div>
+  <div class="cols3">
+    <div class="panel hud"><div class="ph"><span class="id">B</span><h3>Hand split</h3></div><div class="pb split" id="split"></div></div>
+    <div class="panel hud objpanel"><div class="ph"><span class="id">C</span><h3>Objects handled</h3><span class="aside" id="objAside"></span></div><div class="pb"><div class="objs" id="objs"></div></div></div>
+    <div class="panel hud"><div class="ph"><span class="id">D</span><h3>Two-hand work</h3></div><div class="pb"><div class="facts" id="facts"></div></div></div>
+  </div>
+  <div class="panel hud">
+    <div class="ph"><span class="id">E</span><h3>Key moments</h3><span class="aside" id="momAside">longest holds in the clip</span></div>
+    <div class="pb"><div class="moments" id="moments"></div></div>
+  </div>
+  <div class="cols2">
+    <div class="panel hud"><div class="ph"><span class="id">F</span><h3>Event log</h3><span class="aside" id="logAside"></span></div><div class="pb"><ul class="log" id="ovLog"></ul></div></div>
+    <div class="panel hud"><div class="ph"><span class="id">G</span><h3>Safety</h3><span class="aside" id="safeAside"></span></div><div class="pb" id="safety"></div></div>
+  </div>
+  <div class="honest" id="honest"></div>
+</section>
+
+<!-- ============ REPLAY ============ -->
+<section id="replay" class="hidden">
+  <div class="rgrid">
+    <div>
+      <div class="panel hud stage">
+        <div class="panes" id="panes">
+          <div class="pane" id="paneB"><canvas id="cvB"></canvas><span class="hudtag base">MediaPipe as-is</span></div>
+          <div class="pane" id="paneA"><canvas id="cvA"></canvas><span class="hudtag ours" id="tagA">GripTrace</span><span class="tc" id="tc">00:00.00</span><span class="alert hidden" id="alertA">⚠ HAND NEAR MOVING PART</span></div>
+        </div>
+        <div class="transport">
+          <button class="ib" id="prev" title="Previous frame (←)"><svg viewBox="0 0 14 14"><path d="M9 2 4 7l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+          <button class="ib play" id="play" title="Play / pause (space)"><svg viewBox="0 0 14 14" id="playIco"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg></button>
+          <button class="ib" id="next" title="Next frame (→)"><svg viewBox="0 0 14 14"><path d="M5 2l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+          <select id="speed" title="Playback speed"><option value=".25">0.25×</option><option value=".5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+          <span class="time" id="time"></span>
+          <div class="tgs" id="tgs">
+            <button class="tg on" data-k="skel">Hands</button>
+            <button class="tg on objonly" data-k="obj">Objects</button>
+            <button class="tg" data-k="split">vs MediaPipe</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel hud tlbox">
+        <div class="ph"><span class="id">T</span><h3>Timeline</h3><span class="aside">drag to scrub · hover for detail</span></div>
+        <div class="pb"><canvas id="tl"></canvas><div class="legend" style="margin-top:10px" id="tlLegend"></div></div>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="panel hc" id="hcL" style="--c:var(--left)"></div>
+      <div class="panel hc" id="hcR" style="--c:var(--right)"></div>
+      <div class="panel hud raillog"><div class="ph"><h3>Live log</h3><span class="aside" id="rlAside"></span></div><div class="pb"><ul class="log" id="rLog"></ul></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUALITY ============ -->
+<section id="quality" class="hidden">
+  <div class="hero"><div><div class="eyebrow">Same frames, same run · MediaPipe starter code vs GripTrace</div><h1>Tracking quality</h1></div></div>
+  <div class="qtop">
+    <div class="panel hud"><div class="ph"><h3>Before → after</h3><span class="aside dbkey"><span><i style="background:#7a8088"></i>MediaPipe</span><span><i style="background:var(--ok)"></i>GripTrace</span></span></div><div class="pb"><div class="db" id="dumbbells"></div></div></div>
+    <div class="panel hud"><div class="ph"><h3>What was fixed on this clip</h3></div><div class="pb"><ul class="fixes" id="fixes"></ul></div></div>
+  </div>
+  <div class="qrow">
+    <div class="panel hud"><div class="ph"><h3>Where each hand position came from</h3></div><div class="pb srcbars" id="srcbars"></div></div>
+    <div class="panel hud"><div class="ph"><h3>Speed on CPU</h3><span class="aside" id="hw"></span></div><div class="pb"><div class="ms" id="ms"></div><p class="note" style="margin-top:12px" id="speedNote"></p></div></div>
+  </div>
+  <div class="panel hud" id="qFleet"><div class="ph"><h3>All loaded clips</h3><span class="aside">click a row to open it</span></div><div class="pb" style="overflow:auto"><table class="fl" id="flTable"></table></div></div>
+</section>
+
+<!-- ============ AUDIT ============ -->
+<section id="audit" class="hidden">
+  <div class="hero"><div><div class="eyebrow">Measure real accuracy by eye · same frames for every reviewer</div><h1>Audit</h1></div></div>
+  <div class="agrid">
+    <div class="panel hud stage"><div class="pane"><canvas id="cvL"></canvas><span class="hudtag ours">Judge this frame</span><span class="tc" id="labPos"></span></div></div>
+    <div class="panel hud"><div class="pb">
+      <div class="eyebrow">Progress</div><div class="progress"><i id="labBar"></i></div><div class="note" id="labDone"></div>
+      <div class="eyebrow L" style="margin-top:18px">Left hand · keys 1–6</div><div class="qg" id="qL" style="--c:var(--left)"></div>
+      <div class="eyebrow R">Right hand · keys Q–Y</div><div class="qg" id="qR" style="--c:var(--right)"></div>
+      <div style="display:flex;gap:8px"><button class="btn" id="labPrev">← Prev</button><button class="btn" id="labNext">Next →</button><button class="btn" id="labExport" style="margin-left:auto">Export</button></div>
+      <div class="astats" id="labStats"></div>
+    </div></div>
+  </div>
+</section>
+</main>
+
+<div class="dropzone" id="dz"><div>Drop folder or files</div></div>
+<div id="tip"></div>
+<input type="file" id="file" multiple accept=".json,video/*" hidden>
+<input type="file" id="folder" webkitdirectory multiple hidden>
+<input type="file" id="addClip" multiple accept="video/*,.mp4,.mov,.webm,.mkv" hidden>
+<video id="vid" muted playsinline preload="auto" class="hidden"></video>
+<video id="vidT" muted playsinline preload="auto" class="hidden"></video>
+<script>
+"use strict";
+// ============================================================ basics
+const $=id=>document.getElementById(id);
+const BONES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+const PALM=[0,1,5,9,13,17], TIPS=[4,8,12,16,20], SIDES=["left","right"];
+const SRC=["mp","roi","enh","interp","fill"], STATE=["none","portable","fixed","not_visible"];
+const SRC_NAME={mp:"detected",roi:"recovered · zoom",enh:"recovered · contrast",interp:"interpolated",fill:"between frames"};
+const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COL={left:cssv("--left"),right:cssv("--right"),hazard:cssv("--hazard"),ok:cssv("--ok"),rec:cssv("--rec"),interp:cssv("--interp"),
+  miss:cssv("--miss"),fixed:cssv("--fixed"),portable:cssv("--portable"),ink:cssv("--ink"),muted:cssv("--muted"),line:cssv("--line")};
+const FONT_M=`"JetBrains Mono","Cascadia Mono",Consolas,monospace`, FONT_D=`"Barlow Condensed","Bahnschrift SemiCondensed",Bahnschrift,"Arial Narrow",sans-serif`;
+const fmt=(x,d=1)=>(+x).toFixed(d);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cap=s=>s?s[0].toUpperCase()+s.slice(1):"";
+const clock=(t,dec=0)=>{const m=Math.floor(t/60),s=t-60*m;return `${String(m).padStart(2,"0")}:${dec?s.toFixed(dec).padStart(3+dec,"0"):String(Math.floor(s)).padStart(2,"0")}`};
+const median=a=>{if(!a.length)return 0;const b=[...a].sort((x,y)=>x-y),m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2};
+const SITES=[[/^MTL-SKL/i,"Bench assembly"],[/^MTL-SGF/i,"Carpentry workshop"],[/^mytronlabs-000003/i,"Machining & gauging"]];
+const siteOf=c=>(SITES.find(([r])=>r.test(c))||[0,""])[1];
+const stemOf=n=>n.replace(/\.results\.json$/i,"").replace(/\.(mp4|mov|webm|mkv|m4v)$/i,"");
+function hiDPI(cv,h){const r=cv.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=Math.max(50,Math.round(r.width*d));cv.height=Math.round((h??r.height)*d);
+  const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);return {c,W:r.width,H:h??r.height}}
+function rr(c,x,y,w,h,r){r=Math.min(r,w/2,h/2);c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function download(name,text,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}
+
+// ============================================================ state
+const LIB={};             // stem -> {res:File, vid:File, S:summary}
+let D=null, STEM=null, fps=30, N=0, procOf=null, HAS_OBJ=true;
+let view="overview", dirty=true, videoReady=false, virtualT=0, vPlaying=false, vLast=0;
+const show={skel:true,obj:true,split:false};
+const vid=$("vid"), vidT=$("vidT");
+
+// ============================================================ loading
+function handleFiles(list){
+  const files=[...list];let added=0;
+  for(const f of files){
+    if(/\.results\.json$/i.test(f.name)){(LIB[stemOf(f.name)]??={}).res=f;added++}
+    else if(/\.labels\.json$/i.test(f.name)){f.text().then(t=>{try{importLabels(JSON.parse(t))}catch(e){}})}
+    else if((/^video\//.test(f.type)||/\.(mp4|mov|webm|mkv|m4v)$/i.test(f.name))&&!/_demo\.mp4$/i.test(f.name)&&!/^demo/i.test(f.name)&&!/^GripTrace_demo/i.test(f.name)){
+      (LIB[stemOf(f.name)]??={}).vid=f;
+      if(D&&STEM===stemOf(f.name))setVideo(f);
+    }
+  }
+  afterAdd(added);
+}
+async function afterAdd(){
+  const stems=Object.keys(LIB).filter(k=>LIB[k].res).sort();
+  if(!stems.length&&!SERVER){if(Object.keys(LIB).length)toast("Add the results.json files too (outputs folder).");return}
+  await Promise.all(stems.map(summarize));
+  buildClipMenu();
+  $("tabFleet").classList.toggle("hidden",!SERVER&&stems.length<2);
+  if(!D){if(SERVER||stems.length>1){showChrome();setView("fleet")}else openClip(stems[0])}
+  else{buildQualityFleet();if(view==="fleet")buildFleet()}
+}
+async function summarize(stem){
+  const e=LIB[stem];if(e.S)return;
+  if(e.res&&e.res.remote){try{const r=await fetch("api/summary/"+encodeURIComponent(stem));if(!r.ok)throw new Error(r.status);e.S=await r.json()}catch(err){e.S={bad:true}}return}
+  try{const d=JSON.parse(await e.res.text());e.S=summaryOf(d)}catch(err){e.S={bad:true};console.warn("bad json",stem,err)}
+}
+function summaryOf(d){
+  const T=d.meta.n_frames/d.meta.fps,segs=d.segments.map(s=>({hand:s.hand,state:s.state,t0:s.t_start,t1:s.t_end,name:s.object_name}));
+  const hold=d.segments.filter(s=>s.state==="portable"||s.state==="fixed").map(s=>s.t_end-s.t_start);
+  return {meta:d.meta,metrics:d.metrics,T,segs,medHold:median(hold),objects:(d.meta.objects_backend||"none")!=="none"};
+}
+function setVideo(f){if(vid.src&&vid.src.startsWith("blob:"))URL.revokeObjectURL(vid.src);const u=f.url||URL.createObjectURL(f);vid.src=u;vidT.src=u;videoReady=false;vid.playbackRate=+$("speed").value}
+async function openClip(stem){
+  const e=LIB[stem];let d;
+  try{d=JSON.parse(await e.res.text())}catch(err){toast("Could not read "+e.res.name);return}
+  pause();D=d;STEM=stem;vid.removeAttribute("src");vidT.removeAttribute("src");videoReady=false;
+  if(e.vid)setVideo(e.vid);
+  init();
+}
+function showChrome(){$("welcome").classList.add("hidden");$("tabs").classList.remove("hidden");$("clipSel").classList.remove("hidden");stopDemo()}
+vid.addEventListener("loadeddata",()=>{videoReady=true;dirty=true;if(D){$("clipMeta").textContent=$("clipMeta").textContent.replace("no video","video loaded");$("ovEyebrow").textContent=$("ovEyebrow").textContent.replace(/results only.*$/,"video linked")}if(D)seekFrame(Math.floor(virtualT*fps));buildMoments()});
+let vidErr=false;vid.addEventListener("loadstart",()=>{vidErr=false});
+vid.addEventListener("error",()=>{if(!vid.getAttribute("src"))return;vidErr=true;dirty=true;if(!SERVER)toast("This browser can't play this video (the clips are H.265). Start the app with start_app.bat: it converts them automatically.")});
+vid.addEventListener("seeked",()=>dirty=true);
+vid.addEventListener("play",()=>setPlayIcon(true));vid.addEventListener("pause",()=>{if(!vPlaying)setPlayIcon(false)});
+$("loadBtn").onclick=()=>$("folder").click();$("folderBtn").onclick=()=>$("folder").click();$("pickBtn").onclick=()=>$("file").click();
+$("file").onchange=e=>{handleFiles(e.target.files);e.target.value=""};$("folder").onchange=e=>{handleFiles(e.target.files);e.target.value=""};
+let dragN=0;
+addEventListener("dragenter",e=>{e.preventDefault();dragN++;$("dz").classList.add("on")});
+addEventListener("dragover",e=>e.preventDefault());
+addEventListener("dragleave",e=>{e.preventDefault();if(--dragN<=0){dragN=0;$("dz").classList.remove("on")}});
+addEventListener("drop",async e=>{e.preventDefault();dragN=0;$("dz").classList.remove("on");routeDrop(await filesFromDrop(e.dataTransfer))});
+async function routeDrop(files){if(SERVER){const v=files.filter(f=>/\.(mp4|mov|webm|mkv|m4v)$/i.test(f.name));for(const f of v)await uploadClip(f);poll(true);return}handleFiles(files)}
+async function filesFromDrop(dt){
+  const out=[],walk=async ent=>{if(ent.isFile){out.push(await new Promise((r,j)=>ent.file(r,j)))}
+    else if(ent.isDirectory){const rd=ent.createReader();let b;do{b=await new Promise((r,j)=>rd.readEntries(r,j));for(const c of b){if(!/^(\.venv|node_modules|\.git|__pycache__|weights|models)$/.test(c.name))await walk(c)}}while(b.length)}};
+  const ents=[...dt.items].map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+  if(!ents.length)return [...dt.files];for(const en of ents)await walk(en);return out}
+function toast(msg){const t=$("tip");t.innerHTML=esc(msg);t.style.display="block";t.style.left="50%";t.style.top="80px";t.style.transform="translateX(-50%)";
+  clearTimeout(toast._t);toast._t=setTimeout(()=>{t.style.display="none";t.style.transform=""},4200)}
+
+// ============================================================ clip menu
+function buildClipMenu(){
+  const stems=Object.keys(LIB).filter(k=>LIB[k].res&&LIB[k].S&&!LIB[k].S.bad).sort();
+  $("clipMenu").innerHTML=stems.map(k=>`<button data-k="${esc(k)}" class="${k===STEM?"on":""}">${esc(k)}<span>${LIB[k].vid?"▶ ":""}${clock(LIB[k].S.T)}</span></button>`).join("")
+    +(stems.length>1||SERVER?`<button data-k="__fleet"><b>All clips</b><span>${stems.length}</span></button>`:"");
+  if(!STEM){$("clipName").textContent=`${stems.length} clip${stems.length===1?"":"s"} loaded`;$("clipMeta").textContent="choose one"}
+}
+$("clipBtn").onclick=e=>{e.stopPropagation();$("clipMenu").classList.toggle("hidden")};
+addEventListener("click",()=>$("clipMenu").classList.add("hidden"));
+$("clipMenu").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.k==="__fleet"){setView("fleet");return}openClip(b.dataset.k)};
+
+// ============================================================ init a clip
+let FR=null;  // per-frame decoded helpers
+function init(){
+  showChrome();
+  fps=D.meta.fps;N=D.frames.length;HAS_OBJ=(D.meta.objects_backend||"none")!=="none";
+  procOf=new Int32Array(N);let k=0;for(let i=0;i<N;i++){while(k+1<D.proc_idx.length&&D.proc_idx[k+1]<=i)k++;procOf[i]=k}
+  for(const id of ["cvA","cvB","cvL"]){$(id).width=D.meta.width;$(id).height=D.meta.height}
+  document.querySelectorAll(".objonly").forEach(e=>e.classList.toggle("hidden",!HAS_OBJ));
+  const T=N/fps;
+  $("clipName").textContent=STEM;$("clipMeta").textContent=`${clock(T)} · ${D.meta.width}×${D.meta.height} · ${LIB[STEM].vid?"video loaded":"no video"}`;
+  buildClipMenu();
+  virtualT=0;segIndex();buildEvents();buildOverview();buildReplayStatic();buildQuality();loadLabels();
+  setView(view==="fleet"?"overview":view);
+}
+let SEG={left:[],right:[]};
+function segIndex(){SEG={left:[],right:[]};for(const s of D.segments)SEG[s.hand].push(s);for(const sd of SIDES)SEG[sd].sort((a,b)=>a.t_start-b.t_start)}
+function segAt(sd,t){const a=SEG[sd];let lo=0,hi=a.length-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m].t_end<=t)lo=m+1;else if(a[m].t_start>t)hi=m-1;else return a[m]}return null}
+function hand(i,sd){const r=D.frames[i][sd==="left"?0:1];if(!r)return null;const kp=[];for(let j=0;j<21;j++)kp.push([r[3+2*j],r[4+2*j]]);return {src:SRC[r[0]],state:STATE[r[1]],obj:r[2]<0?null:r[2],kp}}
+const objInfo=t=>D.object_info[String(t)]||{name:"object",kind:"portable",hazard:false};
+const inSafety=t=>D.safety.some(e=>t>=e.t_start-.05&&t<=e.t_end+.05);
+const segName=s=>s.object_name||(s.state==="fixed"?"surface":"object");
+
+// ============================================================ views
+function setView(v){
+  if(!D&&v!=="fleet")return;
+  view=v;["fleet","overview","replay","quality","audit"].forEach(x=>$(x).classList.toggle("hidden",x!==v));
+  [...$("tabs").children].forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  if(v!=="replay"&&v!=="audit")pause();
+  if(v==="fleet")buildFleet();
+  if(v==="overview")requestAnimationFrame(()=>{drawTape();drawKpiViz()});
+  if(v==="replay")requestAnimationFrame(()=>{layoutPanes();resizeTimeline()});
+  if(v==="audit"){labRefresh()}
+  if(v==="quality")buildQualityFleet();
+  scrollTo({top:0});dirty=true;
+}
+$("tabs").onclick=e=>{const b=e.target.closest("button");if(b)setView(b.dataset.v)};
+addEventListener("resize",()=>{if(!D)return;if(view==="overview"){drawTape();drawKpiViz()}if(view==="replay")resizeTimeline();if(view==="fleet")buildFleet();dirty=true});
+
+// ============================================================ shares & insights
+function frameShares(sd){
+  const n=sd==="left"?0:1,o={portable:0,fixed:0,none:0,not_visible:0},src={mp:0,roi:0,enh:0,interp:0,fill:0,miss:0};
+  for(let i=0;i<N;i++){const r=D.frames[i][n];if(!r){o.not_visible++;src.miss++;continue}o[STATE[r[1]]]++;src[SRC[r[0]]]++}
+  return {o,src};
+}
+function insights(){
+  const T=N/fps,S={left:frameShares("left"),right:frameShares("right")};
+  const holds=D.segments.filter(s=>s.state==="portable"),contacts=D.segments.filter(s=>s.state==="portable"||s.state==="fixed");
+  let both=0,either=0,vis=0;
+  for(let i=0;i<N;i++){const a=D.frames[i][0],b=D.frames[i][1];
+    const ba=a&&(a[1]===1||a[1]===2),bb=b&&(b[1]===1||b[1]===2);if(a||b)vis++;if(ba&&bb)both++;if(ba||bb)either++}
+  let handoffs=0;
+  for(const a of holds)for(const b of holds){if(a.hand===b.hand||!a.object_name||a.object_name!==b.object_name||a.object_name==="unknown object")continue;
+    if(b.t_start>=a.t_end-0.6&&b.t_start<=a.t_end+1.0&&b.t_start>a.t_start)handoffs++}
+  const longest=holds.reduce((m,s)=>s.t_end-s.t_start>(m?m.t_end-m.t_start:0)?s:m,null);
+  const bins=Math.max(12,Math.min(90,Math.round(T/4))),dens=new Array(bins).fill(0);
+  for(const s of holds)dens[Math.min(bins-1,Math.floor(s.t_start/T*bins))]++;
+  return {T,S,holds,contacts,both:vis?both/vis:0,either:vis?either/vis:0,vis,handoffs,longest,dens,
+    medHold:median(contacts.map(s=>s.t_end-s.t_start)),perMin:holds.length/(T/60)};
+}
+let INS=null;
+
+// ============================================================ overview
+function buildOverview(){
+  INS=insights();const m=D.metrics,T=INS.T,site=siteOf(STEM);
+  $("ovEyebrow").textContent=[site,`${clock(T)} of footage`,LIB[STEM].vid?"video linked":"results only — add the clip to see video"].filter(Boolean).join("  ·  ");
+  $("ovTitle").textContent=STEM;
+  $("ovMeta").textContent=`${D.meta.width}×${D.meta.height} · ${D.meta.fps} fps · ${m.processed_frames} frames analysed · ${m.fps_video_equiv} fps on CPU${D.meta.created?" · run "+D.meta.created:""}`;
+  const kp=(id,l,v,unit,sub)=>`<div class="panel hud kpi"><div class="eyebrow">${l}</div><div class="v">${v}${unit?`<small>${unit}</small>`:""}</div><div class="s">${sub}</div><canvas id="${id}"></canvas></div>`;
+  $("kpis").innerHTML=HAS_OBJ?
+     kp("kv1","Grabs",INS.holds.length,"",`<b>${fmt(INS.perMin,1)}</b> per minute`)
+    +kp("kv2","Hands busy",Math.round(INS.either*100),"%",`<b>${Math.round(INS.both*100)}%</b> both at once · of time in view`)
+    +kp("kv3","Median contact",fmt(INS.medHold,1),"s",`longest hold <b>${INS.longest?fmt(INS.longest.t_end-INS.longest.t_start,1):"–"} s</b>`)
+    +kp("kv4","Both hands tracked",fmt(m.both_hands_final,0),"%",`MediaPipe alone: <b>${fmt(m.both_hands_baseline,0)}%</b>`)
+   : kp("kv1","Left hand found",fmt(m.left_share_final,0),"%",`MediaPipe: <b>${m.left_share_baseline}%</b>`)
+    +kp("kv2","Right hand found",fmt(m.right_share_final,0),"%",`MediaPipe: <b>${m.right_share_baseline}%</b>`)
+    +kp("kv3","Jitter cut",m.jitter_reduction_pct??"–","%",`${m.jitter_baseline} → <b>${m.jitter_final}</b> % of hand size`)
+    +kp("kv4","Both hands tracked",fmt(m.both_hands_final,0),"%",`MediaPipe alone: <b>${fmt(m.both_hands_baseline,0)}%</b>`);
+  $("tapeLegend").innerHTML=HAS_OBJ?`<span><i class="sw-hold-l"></i>left hand holding</span><span><i class="sw-hold-r"></i>right hand holding</span><span><i class="sw-surf"></i>on a surface</span><span><i class="sw-free"></i>free</span><span><i class="sw-nv"></i>not in view</span>${D.safety.length?`<span><i style="background:var(--hazard)"></i>safety</span>`:""}<span style="margin-left:auto">top strip: grabs over time</span>`
+    :`<span><i class="sw-hold-l"></i>left hand tracked</span><span><i class="sw-hold-r"></i>right hand tracked</span><span><i class="sw-nv"></i>not in view</span>`;
+  // hand split
+  const row=(sd)=>{const o=INS.S[sd].o,tot=N;const p=k=>100*o[k]/tot;const c=COL[sd];
+    return `<div class="h"><b style="color:${c}">${sd} hand</b><span class="num note">${fmt(p("portable")+p("fixed"),0)}% in contact</span></div>
+    <div class="stack"><span style="width:${p("portable")}%;background:${c}"></span><span style="width:${p("fixed")}%;background:repeating-linear-gradient(-45deg,${c} 0 2px,#1c2126 2px 5px)"></span><span style="width:${p("none")}%;background:#2a3138"></span><span style="width:${p("not_visible")}%;background:repeating-linear-gradient(45deg,#3a2826 0 2px,#1a1414 2px 5px)"></span></div>
+    <table><tr><td>holding</td><td>${fmt(p("portable"),0)}% · ${fmt(o.portable/fps,0)} s</td></tr><tr><td>on a surface</td><td>${fmt(p("fixed"),0)}% · ${fmt(o.fixed/fps,0)} s</td></tr>
+    <tr><td>free</td><td>${fmt(p("none"),0)}% · ${fmt(o.none/fps,0)} s</td></tr><tr><td>not in view</td><td>${fmt(p("not_visible"),0)}% · ${fmt(o.not_visible/fps,0)} s</td></tr></table>`};
+  $("split").innerHTML=row("left")+row("right");
+  // objects
+  document.querySelector(".objpanel").classList.toggle("hidden",!HAS_OBJ);
+  const tools=Object.entries(D.tools||{}).sort((a,b)=>b[1].seconds-a[1].seconds).slice(0,8),mx=Math.max(1,...tools.map(([,u])=>u.seconds));
+  $("objAside").textContent=`${Object.keys(D.tools||{}).length} kinds`;
+  $("objs").innerHTML=tools.length?tools.map(([n,u])=>{const w=u.seconds/mx*100,l=u.left/Math.max(1,u.left+u.right);
+    return `<div class="obj"><span class="n">${esc(n)}</span><span class="c">${u.grabs}× · ${fmt(u.seconds,0)} s</span>
+      <div class="b"><span style="width:${w*l}%;background:var(--left)"></span><span style="width:${w*(1-l)}%;background:var(--right)"></span></div></div>`}).join("")
+    :`<p class="note">No held objects were named in this clip.</p>`;
+  // facts
+  const f=(l,v)=>`<div class="fact"><span>${l}</span><b>${v}</b></div>`;
+  $("facts").innerHTML=HAS_OBJ?f("Both hands busy at once",`${Math.round(INS.both*100)}%`)+f("Grabs · left / right",`<span class=\"L\">${INS.holds.filter(s=>s.hand==="left").length}</span> / <span class=\"R\">${INS.holds.filter(s=>s.hand==="right").length}</span>`)
+    +f("Surface contacts",D.segments.filter(s=>s.state==="fixed").length)+f("Longest single hold",INS.longest?`${fmt(INS.longest.t_end-INS.longest.t_start,1)} s`:"–")
+    +f("Hands in view",`${Math.round(INS.vis/N*100)}%`)
+    : f("Hands in view",`${Math.round(INS.vis/N*100)}%`)+f("Label flips fixed",m.baseline_label_flips)+f("Co-worker hands ignored",m.rejected_coworker_hands||0);
+  // log + safety
+  $("logAside").textContent=`${EV.length} events`;
+  $("ovLog").innerHTML=logHtml(EV);
+  $("safeAside").textContent=D.safety.length?`${D.safety.length} event${D.safety.length>1?"s":""}`:"";
+  $("safety").innerHTML=D.safety.length?`<ul class="log">${[...D.safety].sort((a,b)=>a.t_start-b.t_start).map(e=>`<li data-t="${e.t_start}"><span class="t">${clock(e.t_start,1)}</span><span class="d" style="background:var(--hazard)"></span><span>${cap(e.hand)} hand within reach of moving <b>${esc(e.object_name)}</b></span></li>`).join("")}</ul><p class="note" style="margin-top:10px">Flagged when a hand overlaps a hazard (wheel, blade, spindle) that is visibly moving.</p>`
+    :`<div style="display:flex;gap:12px;align-items:center"><span class="led"></span><span>No hand came near a moving hazard in this clip.</span></div><p class="note" style="margin-top:10px">Watched for: grinding wheel, saw blade, rotating spindle, drill bit.</p>`;
+  $("momAside").textContent=HAS_OBJ?"longest holds — click to replay":"sample frames — click to replay";
+  buildAiNote();
+  buildMoments();
+  requestAnimationFrame(()=>{drawTape();drawKpiViz()});
+}
+function drawKpiViz(){
+  if(!INS||view!=="overview")return;const m=D.metrics;
+  const spark=(id,data,col)=>{const cv=$(id);if(!cv)return;const {c,W,H}=hiDPI(cv,30);const mx=Math.max(1,...data),bw=W/data.length;
+    data.forEach((v,i)=>{const h=v/mx*(H-2);c.fillStyle=col;c.globalAlpha=v?0.9:0.25;c.fillRect(i*bw+.5,H-Math.max(1.5,h),Math.max(1,bw-1.5),Math.max(1.5,h))});c.globalAlpha=1};
+  const bars=(id,rows)=>{const cv=$(id);if(!cv)return;const {c,W,H}=hiDPI(cv,30);const h=(H-6)/rows.length;
+    rows.forEach(([v,col],i)=>{c.fillStyle="#20262c";c.fillRect(0,i*(h+6),W,h);c.fillStyle=col;c.fillRect(0,i*(h+6),W*Math.min(1,v),h)})};
+  if(HAS_OBJ){
+    spark("kv1",INS.dens,COL.right);
+    bars("kv2",[[(INS.S.left.o.portable+INS.S.left.o.fixed)/N,COL.left],[(INS.S.right.o.portable+INS.S.right.o.fixed)/N,COL.right]]);
+    const H=new Array(16).fill(0);for(const s of INS.contacts)H[Math.min(15,Math.floor((s.t_end-s.t_start)/0.5))]++;spark("kv3",H,COL.fixed);
+  }else{bars("kv1",[[m.left_share_baseline/100,"#5a6067"],[m.left_share_final/100,COL.left]]);bars("kv2",[[m.right_share_baseline/100,"#5a6067"],[m.right_share_final/100,COL.right]]);
+    bars("kv3",[[1,"#5a6067"],[m.jitter_final/Math.max(.01,m.jitter_baseline),COL.ok]])}
+  bars("kv4",[[m.both_hands_baseline/100,"#5a6067"],[m.both_hands_final/100,COL.ok]]);
+}
+
+function buildAiNote(){
+  const A=D.agent,el=$("aiNote"),done=A&&A.status==="done";
+  $("honest").innerHTML=done?`<span>ⓘ</span><div><b>What to trust.</b> Hand positions, left/right and grab/release timing come from the hand tracker. Object names come from a vision model (${esc(A.model||"Claude")}) looking at a crop around each hand, ${A.named} contacts named. Check the key moments to confirm.</div>`
+    :`<span>ⓘ</span><div><b>What to trust.</b> Hand positions, left/right, and when each hand grabs and lets go are the reliable signal. Object <b>names</b> come from an open-vocabulary detector that was never trained on these parts, so treat them as approximate${SERVER?(SRVINFO.ai_key?" — AI naming will replace them shortly.":" — add an API key to name them with AI."):"."}</div>`;
+  if(!done||!A.report&&!A.scene){el.classList.add("hidden");return}
+  const R=A.report||{},sc=A.scene||{};
+  el.innerHTML=`<div class="ph"><span class="id">AI</span><h3>Shift note</h3><span class="aside"><span class="aibadge">◆ ${esc(A.model||"vision model")}</span></span></div>
+   <div class="pb"><div class="grid2"><div><div class="eyebrow">Workstation</div><div class="set">${esc(sc.setting||"")}</div>
+     <p class="sum">${esc(R.summary||sc.task||"")}</p>${(R.observations||[]).length?`<ul class="obs">${R.observations.map(o=>`<li>${esc(o)}</li>`).join("")}</ul>`:""}</div>
+     <div><div class="eyebrow" style="margin-bottom:6px">Steps · click to replay</div><ol class="steps2">${(R.steps||[]).map(x=>`<li data-t="${x.t_start}"><span class="t">${clock(x.t_start)}–${clock(x.t_end)}</span><span>${esc(x.step)}</span></li>`).join("")}</ol></div></div></div>`;
+  el.classList.remove("hidden");
+}
+$("aiNote").addEventListener("click",e=>{const li=e.target.closest("li[data-t]");if(li)jumpTo(+li.dataset.t+0.05)});
+
+// ---------- state patterns for tapes/timelines
+const PAT={};
+function pattern(c,kind,col){
+  const key=kind+col;if(PAT[key])return PAT[key];
+  const p=document.createElement("canvas");p.width=p.height=8;const x=p.getContext("2d");
+  if(kind==="surf"){x.fillStyle="#171b1f";x.fillRect(0,0,8,8);x.strokeStyle=col;x.lineWidth=2;x.beginPath();x.moveTo(-2,10);x.lineTo(10,-2);x.moveTo(-2,2);x.lineTo(2,-2);x.moveTo(6,10);x.lineTo(10,6);x.stroke()}
+  else{x.fillStyle="#1a1414";x.fillRect(0,0,8,8);x.strokeStyle="#3d2a27";x.lineWidth=2;x.beginPath();x.moveTo(-2,-2);x.lineTo(10,10);x.moveTo(6,-2);x.lineTo(10,2);x.moveTo(-2,6);x.lineTo(2,10);x.stroke()}
+  return PAT[key]=c.createPattern(p,"repeat")}
+function paintLanes(c,x0,w,T,lanes,segs,hasObj){
+  // lanes: [{sd,y,h}] ; segs: [{hand,state,t0,t1,name}]
+  for(const L of lanes){c.fillStyle="#1b2026";c.fillRect(x0,L.y,w,L.h);c.fillStyle="#2a3138";c.fillRect(x0,L.y+L.h/2-.5,w,1)}
+  for(const s of segs){const L=lanes.find(l=>l.sd===s.hand);if(!L)continue;
+    const xa=x0+s.t0/T*w,xb=Math.max(xa+1,x0+s.t1/T*w);
+    if(s.state==="portable"||(!hasObj&&s.state==="none")){c.fillStyle=COL[s.hand];c.fillRect(xa,L.y,xb-xa,L.h)}
+    else if(s.state==="fixed"){c.fillStyle=pattern(c,"surf",COL[s.hand]);c.fillRect(xa,L.y,xb-xa,L.h)}
+    else if(s.state==="not_visible"){c.fillStyle=pattern(c,"nv");c.fillRect(xa,L.y,xb-xa,L.h)}}
+}
+function ticks(c,x0,w,T,y,h,font=10.5){
+  const step=T>600?120:T>240?60:T>120?30:T>40?10:5;c.font=`${font}px ${FONT_M}`;c.textBaseline="alphabetic";
+  for(let t=0;t<=T+1e-6;t+=step){const x=x0+t/T*w;c.fillStyle="#2a3138";c.fillRect(Math.round(x),y,1,h);c.fillStyle=COL.muted;if(x<x0+w-30)c.fillText(clock(t),x+4,y+10)}
+}
+const segsOf=d=>d.segments.map(s=>({hand:s.hand,state:s.state,t0:s.t_start,t1:s.t_end,name:s.object_name}));
+let TAPE=null;
+function drawTape(){
+  const cv=$("tape");if(!cv||!INS||view!=="overview")return;const {c,W,H}=hiDPI(cv,150);
+  const x0=34,w=W-x0-4,T=INS.T,top=16,dh=26,lh=40,gap=8;
+  c.clearRect(0,0,W,H);ticks(c,x0,w,T,0,H);
+  // density strip
+  const mx=Math.max(1,...INS.dens),bw=w/INS.dens.length;
+  INS.dens.forEach((v,i)=>{const h=v/mx*dh;c.fillStyle=COL.ink;c.globalAlpha=v?0.55:0.12;c.fillRect(x0+i*bw+1,top+dh-Math.max(1,h),Math.max(1,bw-2),Math.max(1,h))});c.globalAlpha=1;
+  const lanes=[{sd:"left",y:top+dh+gap,h:lh},{sd:"right",y:top+dh+gap*2+lh,h:lh}];
+  paintLanes(c,x0,w,T,lanes,segsOf(D),HAS_OBJ);
+  for(const e of D.safety){c.fillStyle=COL.hazard;c.fillRect(x0+e.t_start/T*w-1,top+dh+2,3,H-top-dh-4)}
+  c.font=`700 14px ${FONT_D}`;c.fillStyle=COL.left;c.fillText("L",8,lanes[0].y+lh/2+5);c.fillStyle=COL.right;c.fillText("R",8,lanes[1].y+lh/2+5);
+  TAPE={x0,w,T,lanes};
+}
+function tapeHover(e,cv,G,lanesOf){
+  const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,t=Math.max(0,Math.min(G.T,(x-G.x0)/G.w*G.T));
+  const L=G.lanes.find(l=>y>=l.y-3&&y<=l.y+l.h+3);let html=`<b>${clock(t,1)}</b>`;
+  if(L){const s=segAt(L.sd,t);if(s)html+=`<br><span style="color:${COL[L.sd]}">${cap(L.sd)} hand</span> · ${stateText(s.state,s.object_name)}<br>${clock(s.t_start,1)} → ${clock(s.t_end,1)} · ${fmt(s.t_end-s.t_start,1)} s`}
+  const tip=$("tip");tip.innerHTML=html;tip.style.display="block";tip.style.transform="";tip.style.left=Math.min(innerWidth-310,e.clientX+14)+"px";tip.style.top=(e.clientY+16)+"px";return t}
+$("tape").addEventListener("mousemove",e=>{if(TAPE)tapeHover(e,$("tape"),TAPE)});
+$("tape").addEventListener("mouseleave",()=>$("tip").style.display="none");
+$("tape").addEventListener("click",e=>{if(!TAPE)return;const r=$("tape").getBoundingClientRect();const t=(e.clientX-r.left-TAPE.x0)/TAPE.w*TAPE.T;$("tip").style.display="none";jumpTo(Math.max(0,t))});
+function stateText(st,name){return HAS_OBJ?(st==="portable"?`holding <b>${esc(name||"object")}</b>`:st==="fixed"?`on <b>${esc(name||"surface")}</b>`:st==="not_visible"?"not in view":"free"):(st==="not_visible"?"not in view":"tracked")}
+function jumpTo(t){setView("replay");seekFrame(Math.floor(t*fps));}
+
+// ---------- events
+let EV=[];
+function buildEvents(){
+  EV=[];
+  for(const s of D.segments){
+    if(s.state==="portable"){EV.push({t:s.t_start,c:COL[s.hand],h:`<span class="${s.hand[0].toUpperCase()}">${cap(s.hand)}</span> picks up <b>${esc(segName(s))}</b>`});
+      EV.push({t:s.t_end,c:"#4a525a",h:`<span class="${s.hand[0].toUpperCase()}">${cap(s.hand)}</span> puts down ${esc(segName(s))} <span class="note">· ${fmt(s.t_end-s.t_start,1)} s</span>`})}
+    else if(s.state==="fixed")EV.push({t:s.t_start,c:COL.fixed,h:`<span class="${s.hand[0].toUpperCase()}">${cap(s.hand)}</span> rests on <b>${esc(segName(s))}</b> <span class="note">· ${fmt(s.t_end-s.t_start,1)} s</span>`});
+  }
+  for(const e of D.safety)EV.push({t:e.t_start,c:COL.hazard,h:`<b style="color:var(--hazard)">Safety</b> · ${e.hand} hand near moving ${esc(e.object_name)}`});
+  EV.sort((a,b)=>a.t-b.t);
+}
+const logHtml=ev=>ev.length?ev.map((e,n)=>`<li data-t="${e.t}" data-n="${n}"><span class="t">${clock(e.t,1)}</span><span class="d" style="background:${e.c}"></span><span>${e.h}</span></li>`).join(""):`<li style="cursor:default"><span></span><span></span><span class="note">No contacts in this clip.</span></li>`;
+for(const id of ["ovLog","safety","rLog"])$(id).addEventListener("click",e=>{const li=e.target.closest("li[data-t]");if(li)jumpTo(+li.dataset.t+0.02)});
+
+// ---------- key moments (thumbnails with overlay)
+let momToken=0;
+function pickMoments(){
+  if(HAS_OBJ){const hs=[...INS.holds].sort((a,b)=>(b.t_end-b.t_start)-(a.t_end-a.t_start));const out=[];
+    for(const s of hs){if(out.every(o=>Math.abs(o.t-(s.t_start+s.t_end)/2)>6))out.push({t:(s.t_start+s.t_end)/2,s});if(out.length===6)break}
+    return out.sort((a,b)=>a.t-b.t)}
+  const T=N/fps;return [1,2,3,4,5,6].map(k=>({t:T*k/7,s:null}))}
+async function buildMoments(){
+  if(!D||!INS)return;const tok=++momToken,M=pickMoments();
+  $("moments").innerHTML=M.map((m,n)=>`<button class="mom" data-t="${m.t}"><canvas id="mc${n}" width="384" height="216"></canvas><span class="mtc">${clock(m.t,1)}</span>
+    <div class="cap"><b>${m.s?esc(segName(m.s)):"frame"}</b>${m.s?`<span class="${m.s.hand[0].toUpperCase()}">${m.s.hand}</span> · held ${fmt(m.s.t_end-m.s.t_start,1)} s`:""}</div></button>`).join("");
+  const useVid=videoReady&&vidT.getAttribute("src");
+  for(let n=0;n<M.length;n++){
+    if(tok!==momToken)return;const i=Math.min(N-1,Math.floor(M[n].t*fps));
+    if(useVid){await new Promise(res=>{const done=()=>{vidT.removeEventListener("seeked",done);res()};vidT.addEventListener("seeked",done);vidT.currentTime=(i+.3)/fps;setTimeout(done,1500)})}
+    if(tok!==momToken)return;const cv=$("mc"+n);if(!cv)return;
+    const big=document.createElement("canvas");big.width=D.meta.width;big.height=D.meta.height;
+    drawFrame(big,i,"ours",useVid?vidT:null,M[n].s?M[n].s.hand:null,560);
+    cv.getContext("2d").drawImage(big,0,0,cv.width,cv.height);
+  }
+}
+$("moments").addEventListener("click",e=>{const b=e.target.closest(".mom");if(b)jumpTo(+b.dataset.t)});
+
+// ---------- exports
+$("csvBtn").onclick=()=>download(`${STEM}.contacts.csv`,["clip,t_start,t_end,hand,state,object_name",...D.segments.slice().sort((a,b)=>a.t_start-b.t_start).map(s=>[STEM,fmt(s.t_start,2),fmt(s.t_end,2),s.hand,s.state,`"${(s.object_name||"").replace(/"/g,"'")}"`].join(","))].join("\n"),"text/csv");
+$("mdBtn").onclick=()=>{const m=D.metrics,md=`**${STEM}** (${clock(INS.T)}, CPU only)\n- Both hands tracked: ${m.both_hands_baseline}% → ${m.both_hands_final}% (MediaPipe → GripTrace)\n- Jitter: ${m.jitter_baseline} → ${m.jitter_final} (−${m.jitter_reduction_pct}%)\n- Label flips fixed: ${m.baseline_label_flips}\n`+(HAS_OBJ?`- ${INS.holds.length} grabs (${fmt(INS.perMin,1)}/min), median contact ${fmt(INS.medHold,1)} s, hands busy ${Math.round(INS.either*100)}% of the time\n- Safety events: ${D.safety.length}\n`:"")+`- Speed: ${m.fps_video_equiv} video fps on CPU`;
+  (navigator.clipboard?navigator.clipboard.writeText(md):Promise.reject()).then(()=>{$("mdBtn").textContent="Copied ✓";setTimeout(()=>$("mdBtn").textContent="Copy summary",1600)},()=>prompt("Copy:",md))};
+$("printBtn").onclick=()=>print();
+$("toReplay").onclick=()=>setView("replay");
+
+// ============================================================ frame drawing (shared)
+function drawFrame(cv,i,mode,src,focus,dispW){
+  const c=cv.getContext("2d"),W=cv.width,H=cv.height,s=W/Math.max(300,dispW||cv.clientWidth||900)*0.95;
+  if(src&&src.readyState>=2)c.drawImage(src,0,0,W,H);
+  else{c.fillStyle="#0a0c0e";c.fillRect(0,0,W,H);c.strokeStyle="#151a1f";c.lineWidth=1;
+    for(let x=0;x<W;x+=48*s){c.beginPath();c.moveTo(x,0);c.lineTo(x,H);c.stroke()}for(let y=0;y<H;y+=48*s){c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke()}
+    if(cv.clientWidth>200){const e=STEM&&LIB[STEM]||{},msg=!e.vid&&!e.hasVid?"NO VIDEO LOADED — ADD THE CLIP TO SEE IT":SERVER&&e.preview&&e.preview!=="ready"?(e.preview==="failed"?"THIS VIDEO COULD NOT BE CONVERTED FOR THE BROWSER":"PREPARING THE VIDEO FOR THE BROWSER…"):vidErr?"THIS BROWSER CAN'T PLAY THIS VIDEO (H.265) — START THE APP WITH start_app.bat":"LOADING VIDEO…";
+      c.save();c.font=`700 ${18*s}px ${FONT_D}`;c.fillStyle=COL.muted;c.textAlign="center";c.fillText(msg,W/2,H-28*s);c.restore()}}
+  if(mode==="base"){drawBaseline(c,i,s);return}
+  const k=procOf[i],hs=SIDES.map(sd=>hand(i,sd)),held=new Map(),placed=[];
+  hs.forEach((h,n)=>{if(h&&h.obj!=null&&(h.state==="portable"||h.state==="fixed"))held.set(h.obj,SIDES[n])});
+  if(show.obj&&HAS_OBJ){
+    for(const o of D.objects[k]||[]){
+      const [tid,x1,y1,x2,y2,ghost]=o,info=objInfo(tid),who=held.get(tid);
+      if(!who){ if(info.hazard){c.save();c.strokeStyle=COL.hazard;c.lineWidth=1.5*s;c.setLineDash([6*s,5*s]);c.strokeRect(x1,y1,x2-x1,y2-y1);c.restore()} continue }
+      const col=COL[who];
+      c.save();c.strokeStyle=col;c.lineWidth=3*s;if(ghost)c.setLineDash([8*s,6*s]);c.shadowColor=col;c.shadowBlur=14*s;
+      brackets(c,x1,y1,x2-x1,y2-y1,Math.min(28*s,(x2-x1)/3,(y2-y1)/3));c.restore();
+      c.save();c.fillStyle=col;c.globalAlpha=.08;c.fillRect(x1,y1,x2-x1,y2-y1);c.restore();
+    }
+  }
+  SIDES.forEach((sd,n)=>{
+    const h=hs[n];if(!h)return;const col=COL[sd],dim=h.src==="interp"||h.src==="fill",fade=focus&&focus!==sd;
+    c.save();if(fade)c.globalAlpha=.45;
+    if(show.skel){
+      c.save();c.fillStyle=col;c.globalAlpha*=.16;c.beginPath();PALM.forEach((j,q)=>q?c.lineTo(...h.kp[j]):c.moveTo(...h.kp[j]));c.closePath();c.fill();c.restore();
+      c.save();c.strokeStyle="rgba(0,0,0,.55)";c.lineWidth=(dim?3:5)*s;c.lineCap="round";for(const [a,b] of BONES){c.beginPath();c.moveTo(...h.kp[a]);c.lineTo(...h.kp[b]);c.stroke()}c.restore();
+      c.save();c.strokeStyle=col;c.lineWidth=(dim?1.6:2.8)*s;c.lineCap="round";if(dim)c.setLineDash([5*s,4*s]);for(const [a,b] of BONES){c.beginPath();c.moveTo(...h.kp[a]);c.lineTo(...h.kp[b]);c.stroke()}c.restore();
+      for(let j=0;j<21;j++){const tip=TIPS.includes(j);c.beginPath();c.fillStyle=tip?col:"#f4f1ea";c.arc(h.kp[j][0],h.kp[j][1],(tip?4:2.4)*s,0,7);c.fill()}
+    }
+    // link fingertips -> held box
+    if(show.obj&&HAS_OBJ&&h.obj!=null&&(h.state==="portable"||h.state==="fixed")){
+      const o=(D.objects[k]||[]).find(o=>o[0]===h.obj);
+      if(o){const tp=[4,8,12].map(j=>h.kp[j]),tx=tp.reduce((a,p)=>a+p[0],0)/3,ty=tp.reduce((a,p)=>a+p[1],0)/3,cx=(o[1]+o[3])/2,cy=(o[2]+o[4])/2;
+        c.save();c.strokeStyle=col;c.lineWidth=1.6*s;c.setLineDash([3*s,4*s]);c.beginPath();c.moveTo(tx,ty);c.lineTo(cx,cy);c.stroke();c.restore()}
+    }
+    // tag
+    const xs=h.kp.map(p=>p[0]),ys=h.kp.map(p=>p[1]),sg=segAt(sd,i/fps);
+    let main=sd==="left"?"L":"R",sub="";
+    if(HAS_OBJ){if(h.state==="portable")sub="HOLDING  "+(sg?segName(sg):objInfo(h.obj).name).toUpperCase();else if(h.state==="fixed")sub="ON  "+(sg?segName(sg):"surface").toUpperCase()}
+    let ty=Math.min(...ys)-10*s,tx=Math.min(...xs);const tw=tagW(c,main,sub,s),th=24*s;
+    for(const r of placed){if(tx<r[0]+r[2]&&tx+tw>r[0]&&ty-th<r[1]&&ty>r[1]-r[3])ty=r[1]-r[3]-4*s}
+    tag(c,main,sub,tx,ty,col,s);placed.push([Math.max(4,Math.min(tx,W-tw-4)),Math.max(th+4,ty),tw,th]);
+    c.restore();
+  });
+}
+function brackets(c,x,y,w,h,l){c.beginPath();
+  c.moveTo(x,y+l);c.lineTo(x,y);c.lineTo(x+l,y);c.moveTo(x+w-l,y);c.lineTo(x+w,y);c.lineTo(x+w,y+l);
+  c.moveTo(x+w,y+h-l);c.lineTo(x+w,y+h);c.lineTo(x+w-l,y+h);c.moveTo(x+l,y+h);c.lineTo(x,y+h);c.lineTo(x,y+h-l);c.stroke()}
+function tagW(c,main,sub,s){c.save();c.font=`700 ${17*s}px ${FONT_D}`;const a=c.measureText(main).width+14*s;c.font=`600 ${12*s}px ${FONT_M}`;const b=sub?c.measureText(sub).width+16*s:0;c.restore();return a+b}
+function tag(c,main,sub,x,y,col,s){
+  c.save();c.font=`700 ${17*s}px ${FONT_D}`;const mw=c.measureText(main).width+14*s;c.font=`600 ${12*s}px ${FONT_M}`;const sw=sub?c.measureText(sub).width+16*s:0;
+  const h=24*s,W=c.canvas.width;x=Math.max(4,Math.min(x,W-mw-sw-4));y=Math.max(h+4,y);
+  c.fillStyle=col;c.fillRect(x,y-h,mw,h);if(sub){c.fillStyle="rgba(8,10,12,.85)";c.fillRect(x+mw,y-h,sw,h);c.fillStyle=col;c.fillRect(x+mw,y-2*s,sw,2*s)}
+  c.font=`700 ${17*s}px ${FONT_D}`;c.fillStyle="#0c0e10";c.fillText(main,x+7*s,y-6*s);
+  if(sub){c.font=`600 ${12*s}px ${FONT_M}`;c.fillStyle="#f4f1ea";c.fillText(sub,x+mw+8*s,y-8*s)}c.restore()}
+function drawBaseline(c,i,s){
+  const k=procOf[i],raw=D.raw[k]||[],placed=[];
+  for(const r of raw){const sd=r[0]==="l"?"left":"right",kp=[];for(let j=0;j<21;j++)kp.push([r[1+2*j],r[2+2*j]]);
+    c.save();c.strokeStyle=COL[sd];c.lineWidth=2.4*s;c.lineCap="round";for(const [a,b] of BONES){c.beginPath();c.moveTo(...kp[a]);c.lineTo(...kp[b]);c.stroke()}c.restore();
+    for(const p of kp){c.beginPath();c.fillStyle="#fff";c.arc(p[0],p[1],2.2*s,0,7);c.fill()}
+    const main=sd==="left"?"L":"R",sub="MEDIAPIPE SAYS "+sd.toUpperCase(),tw=tagW(c,main,sub,s),th=24*s,W=c.canvas.width;let tx=Math.min(...kp.map(p=>p[0])),ty=Math.min(...kp.map(p=>p[1]))-10*s;
+    for(const q of placed){if(tx<q[0]+q[2]&&tx+tw>q[0]&&ty-th<q[1]&&ty>q[1]-q[3])ty=q[1]-q[3]-4*s}
+    tag(c,main,sub,tx,ty,COL[sd],s);placed.push([Math.max(4,Math.min(tx,W-tw-4)),Math.max(th+4,ty),tw,th])}
+  if(!raw.length){c.save();c.font=`700 ${22*s}px ${FONT_D}`;c.fillStyle=COL.hazard;c.fillText("NO HANDS FOUND",16*s,H0(c)-18*s);c.restore()}
+}
+const H0=c=>c.canvas.height;
+
+// ============================================================ replay
+function cur(){return Math.min(N-1,Math.max(0,Math.floor(virtualT*fps+1e-3)))}
+const vidCovers=t=>videoReady&&isFinite(vid.duration)&&t<vid.duration-0.05;
+function seekFrame(i){i=Math.max(0,Math.min(N-1,i));const t=(i+.3)/fps;virtualT=t;if(vidCovers(t))vid.currentTime=t;dirty=true}
+function playing(){return (videoReady&&!vid.paused)||vPlaying}
+function setPlayIcon(on){$("playIco").innerHTML=on?'<rect x="3" y="2" width="3" height="10" fill="currentColor"/><rect x="8" y="2" width="3" height="10" fill="currentColor"/>':'<path d="M3 1.5v11l9-5.5z" fill="currentColor"/>'}
+function toggle(){if(!D)return;if(view!=="replay")setView("replay");if(playing()){pause();return}if(cur()>=N-2)seekFrame(0);
+  if(vidCovers(virtualT)){vid.currentTime=virtualT;vid.play()}else{vPlaying=true;vLast=performance.now();setPlayIcon(true)}}
+function pause(){if(videoReady&&!vid.paused)vid.pause();vPlaying=false;setPlayIcon(false)}
+$("play").onclick=toggle;$("prev").onclick=()=>{pause();seekFrame(cur()-1)};$("next").onclick=()=>{pause();seekFrame(cur()+1)};
+$("speed").onchange=e=>{vid.playbackRate=+e.target.value};
+$("tgs").onclick=e=>{const b=e.target.closest(".tg");if(!b)return;show[b.dataset.k]=!show[b.dataset.k];b.classList.toggle("on",show[b.dataset.k]);if(b.dataset.k==="split")layoutPanes();dirty=true};
+function layoutPanes(){$("panes").classList.toggle("split",show.split);$("paneB").classList.toggle("hidden",!show.split)}
+function buildReplayStatic(){
+  $("tlLegend").innerHTML=(HAS_OBJ?`<span><i class="sw-hold-l"></i>left holding</span><span><i class="sw-hold-r"></i>right holding</span><span><i class="sw-surf"></i>on a surface</span><span><i class="sw-nv"></i>not in view</span>`:`<span><i class="sw-hold-l"></i>left tracked</span><span><i class="sw-hold-r"></i>right tracked</span><span><i class="sw-nv"></i>not in view</span>`)
+   +`<span style="margin-left:auto">source:</span><span><i style="background:var(--ok)"></i>detected</span><span><i style="background:var(--rec)"></i>recovered</span><span><i style="background:var(--interp)"></i>filled</span><span><i style="background:var(--miss)"></i>missing</span>`;
+  $("rLog").innerHTML=logHtml(EV);$("rlAside").textContent=`${EV.length}`;
+  layoutPanes();
+}
+// ---------- timeline
+let TL=null,tlBase=null;
+function resizeTimeline(){
+  if(!D||view!=="replay")return;const cv=$("tl"),hasS=D.safety.length>0,Hh=hasS?168:150;
+  cv.style.height=Hh+"px";const {W}=hiDPI(cv,Hh),d=devicePixelRatio||1;tlBase=document.createElement("canvas");tlBase.width=cv.width;tlBase.height=cv.height;
+  const c=tlBase.getContext("2d");c.setTransform(d,0,0,d,0,0);const x0=34,w=W-x0-4,T=N/fps;
+  ticks(c,x0,w,T,0,Hh);
+  const lanes=[{sd:"left",y:18,h:34},{sd:"right",y:58,h:34}];paintLanes(c,x0,w,T,lanes,segsOf(D),HAS_OBJ);
+  c.font=`700 14px ${FONT_D}`;c.fillStyle=COL.left;c.fillText("L",8,40);c.fillStyle=COL.right;c.fillText("R",8,80);
+  // tracking source strips
+  const colOf={mp:COL.ok,roi:COL.rec,enh:COL.rec,interp:COL.interp,fill:COL.interp},yq=104;
+  c.font=`10px ${FONT_M}`;c.fillStyle=COL.muted;c.fillText("SRC",4,yq+15);
+  SIDES.forEach((sd,n)=>{const y=yq+n*12;let px=-1;for(let i=0;i<N;i++){const x=Math.floor(x0+i/N*w);if(x===px)continue;px=x;const r=D.frames[i][n];
+    c.fillStyle=r?colOf[SRC[r[0]]]:COL.miss;c.globalAlpha=r?.85:.5;c.fillRect(x,y,Math.max(1,Math.ceil(w/N)),9)}c.globalAlpha=1});
+  if(hasS){const ys=134;c.fillStyle=COL.hazard;c.fillText("RISK",2,ys+10);for(const e of D.safety)c.fillRect(x0+e.t_start/T*w-1,ys,Math.max(3,(e.t_end-e.t_start)/T*w),12)}
+  TL={x0,w,T,lanes,Hh};drawTimeline();
+}
+function drawTimeline(){if(!tlBase||!TL)return;const cv=$("tl"),c=cv.getContext("2d"),d=devicePixelRatio||1;c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,cv.width,cv.height);c.drawImage(tlBase,0,0);
+  c.setTransform(d,0,0,d,0,0);const x=TL.x0+(cur()/fps)/TL.T*TL.w;c.fillStyle="#f4f1ea";c.fillRect(x-1,12,2,TL.Hh-12);c.beginPath();c.moveTo(x-6,10);c.lineTo(x+6,10);c.lineTo(x,17);c.fill()}
+let scrub=false;
+$("tl").addEventListener("mousedown",e=>{if(!TL)return;scrub=true;pause();const r=$("tl").getBoundingClientRect();seekFrame(Math.floor((e.clientX-r.left-TL.x0)/TL.w*TL.T*fps))});
+addEventListener("mouseup",()=>scrub=false);
+$("tl").addEventListener("mousemove",e=>{if(!TL)return;const t=tapeHover(e,$("tl"),TL);if(scrub)seekFrame(Math.floor(t*fps))});
+$("tl").addEventListener("mouseleave",()=>$("tip").style.display="none");
+// ---------- hand cards
+function hcard(el,sd,i){
+  const h=hand(i,sd),t=i/fps,sg=segAt(sd,t),st=h?h.state:"not_visible";
+  if(h&&h.src==="fill"&&i>0){const p=hand(i-1,sd);if(p)h.src=p.src}
+  const big=HAS_OBJ?{portable:"HOLDING",fixed:"ON SURFACE",none:"FREE",not_visible:"OUT OF VIEW"}[st]:(h?"TRACKED":"OUT OF VIEW");
+  const col=st==="portable"?"var(--c)":st==="fixed"?COL.fixed:st==="not_visible"?COL.muted:"var(--ink)";
+  const srcCol=h?{mp:COL.ok,roi:COL.rec,enh:COL.rec,interp:COL.interp,fill:COL.interp}[h.src]:COL.miss;
+  const name=HAS_OBJ&&sg&&(st==="portable"||st==="fixed")?segName(sg):"";
+  const p=sg?Math.min(1,(t-sg.t_start)/Math.max(.01,sg.t_end-sg.t_start)):0;
+  const key=`${st}|${name}|${h?h.src:""}|${Math.round(p*50)}`;if(el._k===key)return;el._k=key;
+  el.innerHTML=`<div class="top2"><span class="who">${sd} hand</span><span class="src"><span style="color:${srcCol}">●</span> ${h?SRC_NAME[h.src]:"no detection"}</span></div>
+   <div class="st" style="color:${col}">${big}</div><div class="on">${esc(name)||"&nbsp;"}</div>
+   <div class="prog"><i style="width:${p*100}%"></i></div><div class="dur">${sg&&HAS_OBJ?`${fmt(t-sg.t_start,1)} s of ${fmt(sg.t_end-sg.t_start,1)} s`:""}</div>`}
+
+// ============================================================ quality
+function buildQuality(){
+  const m=D.metrics;
+  const rows=[["Left hand found",m.left_share_baseline,m.left_share_final,"%",0,100,false],["Right hand found",m.right_share_baseline,m.right_share_final,"%",0,100,false],
+    ["Both hands found",m.both_hands_baseline,m.both_hands_final,"%",0,100,false],["Jitter (% of hand size)",m.jitter_baseline,m.jitter_final,"",0,Math.max(m.jitter_baseline,m.jitter_final)*1.15,true],
+    ["Left/right label flips",m.baseline_label_flips,0,"",0,Math.max(1,m.baseline_label_flips)*1.1,true],["Frames with two same-side labels",m.baseline_same_label_pairs,0,"",0,Math.max(1,m.baseline_same_label_pairs)*1.1,true]];
+  $("dumbbells").innerHTML=rows.filter(r=>r[1]!=null).map(([l,b,o,u,lo,hi,low])=>{const X=v=>Math.max(0,Math.min(100,(v-lo)/(hi-lo)*100));const better=low?o<=b:o>=b;
+    return `<div class="dbrow"><div class="h"><span>${l}</span><span>${b}${u} → <b>${o}${u}</b></span></div><div class="dbtrack"><div class="rail2"></div>
+      <div class="link ${better?"":"worse"}" style="left:${Math.min(X(b),X(o))}%;width:${Math.abs(X(o)-X(b))}%"></div><div class="p b" style="left:${X(b)}%"></div><div class="p o" style="left:${X(o)}%"></div></div></div>`}).join("");
+  const li=[];
+  li.push(m.handedness_swapped_for_clip?`<b>Mirrored left/right labels</b> detected for this camera and corrected on every frame.`:`<b>Left/right labels verified</b> — not mirrored for this camera, so no swap was needed.`);
+  if(m.baseline_label_flips)li.push(`<b>${m.baseline_label_flips}</b> mid-track label flips by MediaPipe overruled; each hand keeps its identity by motion.`);
+  const other=(m.rejected_small_hands||0)+(m.rejected_coworker_hands||0);if(other)li.push(`<b>${other}</b> detections of other people's hands ignored (co-workers across the bench, people far away).`);
+  if(m.recovered_roi||m.recovered_enh)li.push(`<b>${(m.recovered_roi||0)+(m.recovered_enh||0)}</b> missed hands recovered by zooming in around the predicted position.`);
+  if(m.recovered_interp)li.push(`<b>${m.recovered_interp}</b> short drop-outs bridged (shown dashed in the replay).`);
+  if(m.dark_frames)li.push(`<b>${m.dark_frames}</b> dark frames brightened before detection.`);
+  if(m.jitter_reduction_pct!=null)li.push(`Keypoint jitter cut by <b>${m.jitter_reduction_pct}%</b> with a zero-lag One-Euro filter.`);
+  if(m.camera_motion_ok_pct!=null)li.push(`Head motion estimated on <b>${m.camera_motion_ok_pct}%</b> of frames, so "hand is still on the bench" is judged in scene coordinates.`);
+  $("fixes").innerHTML=li.map(x=>`<li>${x}</li>`).join("");
+  // sources
+  const sb=sd=>{const s=frameShares(sd).src,p=k=>100*s[k]/N,col=COL[sd];
+    return `<div><div class="split"><div class="h"><b style="color:${col}">${sd} hand</b><span class="num note">${fmt(100-p("miss"),0)}% of frames have a position</span></div></div>
+     <div class="stack"><span style="width:${p("mp")}%;background:var(--ok)"></span><span style="width:${p("roi")+p("enh")}%;background:var(--rec)"></span><span style="width:${p("interp")+p("fill")}%;background:var(--interp)"></span><span style="width:${p("miss")}%;background:repeating-linear-gradient(45deg,#3a2826 0 2px,#1a1414 2px 5px)"></span></div>
+     <div class="legend" style="margin-top:8px"><span><i style="background:var(--ok)"></i>detected ${fmt(p("mp"),0)}%</span><span><i style="background:var(--rec)"></i>recovered ${fmt(p("roi")+p("enh"),1)}%</span><span><i style="background:var(--interp)"></i>filled ${fmt(p("interp")+p("fill"),0)}%</span><span><i class="sw-nv"></i>none ${fmt(p("miss"),0)}%</span></div></div>`};
+  $("srcbars").innerHTML=sb("left")+sb("right")+`<p class="note">"Filled" includes the in-between frames: the pipeline analyses every ${D.meta.step||2}nd frame and interpolates the rest.</p>`;
+  const ms=Object.entries(m.ms_per_frame||{}),mx=Math.max(1,...ms.map(([,v])=>v)),tot=ms.reduce((a,[,v])=>a+v,0);
+  const NM={camera:"head motion",enhance:"low light",hands:"hand model",tracker:"tracker",objects:"objects",recovery:"recovery",namer:"naming",post:"post-process"};
+  $("ms").innerHTML=ms.map(([k,v])=>`<div class="r"><span>${NM[k]||k}</span><i style="width:${v/mx*100}%"></i><span>${fmt(v,0)} ms</span></div>`).join("");
+  $("hw").textContent=(D.meta.hardware||"").replace(/,? ?GenuineIntel|Family \d+ Model \d+ Stepping \d+,?/g,"").trim();
+  $("speedNote").innerHTML=`About <b>${fmt(tot,0)} ms</b> per analysed frame · <b>${m.fps_video_equiv}</b> video frames per second end-to-end · ${fmt(m.seconds_total/60,1)} min for this ${clock(N/fps)} clip. No GPU.`;
+  buildQualityFleet();
+}
+function buildQualityFleet(){
+  const stems=Object.keys(LIB).filter(k=>LIB[k].S&&!LIB[k].S.bad).sort();$("qFleet").classList.toggle("hidden",stems.length<2);if(stems.length<2)return;
+  const avg=f=>{const a=stems.map(k=>LIB[k].S.metrics[f]).filter(x=>typeof x==="number");return a.length?a.reduce((s,x)=>s+x,0)/a.length:null};
+  const sum=f=>stems.reduce((s,k)=>s+(LIB[k].S.metrics[f]||0),0);
+  $("flTable").innerHTML=`<tr><th>Clip</th><th>Site</th><th class="n">Length</th><th class="n">Both hands · MP → ours</th><th class="n">Jitter cut</th><th class="n">Flips fixed</th><th class="n">Grabs</th><th class="n">Median contact</th></tr>`
+   +stems.map(k=>{const S=LIB[k].S,m=S.metrics;return `<tr class="cl" data-k="${esc(k)}"><td class="mono">${esc(k)}</td><td>${siteOf(k)||"—"}</td><td class="n">${clock(S.T)}</td><td class="n">${fmt(m.both_hands_baseline,0)}% → <b>${fmt(m.both_hands_final,0)}%</b></td><td class="n">−${fmt(m.jitter_reduction_pct,0)}%</td><td class="n">${m.baseline_label_flips}</td><td class="n">${m.grabs??"—"}</td><td class="n">${S.objects?fmt(S.medHold,1)+" s":"—"}</td></tr>`}).join("")
+   +`<tr class="tot"><td>All ${stems.length} clips</td><td></td><td class="n">${clock(stems.reduce((s,k)=>s+LIB[k].S.T,0))}</td><td class="n">${fmt(avg("both_hands_baseline"),0)}% → ${fmt(avg("both_hands_final"),0)}%</td><td class="n">−${fmt(avg("jitter_reduction_pct"),0)}%</td><td class="n">${sum("baseline_label_flips")}</td><td class="n">${sum("grabs")}</td><td></td></tr>`;
+}
+$("flTable").onclick=e=>{const tr=e.target.closest("tr.cl");if(tr)openClip(tr.dataset.k).then(()=>setView("overview"))};
+
+// ============================================================ fleet
+function buildFleet(){
+  const stems=Object.keys(LIB).filter(k=>LIB[k].S&&!LIB[k].S.bad).sort();
+  const pend=SERVER?Object.keys(LIB).filter(k=>!LIB[k].res&&LIB[k].hasVid).sort():[];
+  if(!stems.length&&!pend.length){
+    $("fleetTitle").textContent="No clips yet";$("fleetAgg").innerHTML="";
+    $("cards").innerHTML=`<div class="panel hud ccard pend" style="grid-column:1/-1;padding:28px"><div class="t">Add a head-camera clip to start.</div><div class="s" style="margin-bottom:0">Use “+ Add clip”, or copy .mp4 files into ${esc(SRVINFO.clips_dir||"egohack-data/clips")}. They appear here by themselves.</div></div>`;return}
+  const totT=stems.reduce((s,k)=>s+LIB[k].S.T,0),grabs=stems.reduce((s,k)=>s+(LIB[k].S.metrics.grabs||0),0);
+  const avg=f=>stems.map(k=>LIB[k].S.metrics[f]).filter(x=>typeof x==="number").reduce((s,x,_,a)=>s+x/a.length,0);
+  $("fleetEyebrow").textContent=SERVER?`${stems.length} analysed${pend.length?` · ${pend.length} waiting`:""}`:"All loaded clips";
+  $("fleetTitle").textContent=`${stems.length+pend.length} clip${stems.length+pend.length===1?"":"s"}`;
+  $("fleetAgg").innerHTML=stems.length?`<div><b>${fmt(totT/60,0)} min</b><span>footage analysed</span></div><div><b>${grabs}</b><span>grabs found</span></div>
+    <div><b>${fmt(avg("both_hands_baseline"),0)} → ${fmt(avg("both_hands_final"),0)}%</b><span>both hands tracked</span></div><div><b>−${fmt(avg("jitter_reduction_pct"),0)}%</b><span>jitter</span></div>`:"";
+  const done=stems.map((k,n)=>{const S=LIB[k].S,m=S.metrics;return `<div class="panel hud ccard" data-k="${esc(k)}" tabindex="0" role="button"><div class="t">${esc(k)}</div>
+    <div class="s">${[siteOf(k),clock(S.T),vidLabel(LIB[k])].filter(Boolean).join(" · ")}</div><canvas id="fc${n}"></canvas>
+    <div class="row"><span>grabs <b>${m.grabs??"—"}</b></span><span>both hands <b>${fmt(m.both_hands_final,0)}%</b></span><span>jitter <b>−${fmt(m.jitter_reduction_pct,0)}%</b></span></div>${aiLine(k)}</div>`}).join("");
+  const waiting=pend.map(k=>{const e=LIB[k],j=e.job||{},st=j.status;
+    if(e.check==="broken"||e.check==="copying")return `<div class="panel ccard pend ${e.check==="broken"?"fail":""}" data-p="${esc(k)}"><div class="t">${esc(k)}</div>
+      <div class="s">${[e.mb?e.mb+" MB":"",e.check==="broken"?"cannot be opened":"arriving"].filter(Boolean).join(" · ")}</div>
+      <div class="jb"><div class="ghost">${e.check==="broken"?"incomplete or damaged file":"copying…"}</div></div>
+      <div class="row"><span class="jt">${e.check==="broken"?"The download probably didn't finish. Download the clip again and add it again.":"Waiting for the file to finish copying."}</span></div></div>`;
+    return `<div class="panel ccard pend ${st==="failed"?"fail":""}" data-p="${esc(k)}"><div class="t">${esc(k)}</div>
+    <div class="s">${[siteOf(k),e.mb?e.mb+" MB":"","not analysed yet"].filter(Boolean).join(" · ")}</div><div class="jb">${jobBox(j)}</div>
+    <div class="row">${st==="running"||st==="queued"?`<span class="jt">${jobText(j)}</span><button class="btn" data-cancel="${esc(k)}">Cancel</button>`
+      :`<span class="jt">${st==="failed"?esc(j.msg||"failed"):"takes about 5× the clip length on a laptop CPU"}</span><button class="btn pri" data-an="${esc(k)}">${st==="failed"?"Retry":"Analyse"}</button>`}</div></div>`}).join("");
+  $("cards").innerHTML=waiting+done;
+  requestAnimationFrame(()=>stems.forEach((k,n)=>{const cv=$("fc"+n);if(!cv)return;const {c,W}=hiDPI(cv,38),S=LIB[k].S;
+    paintLanes(c,0,W,S.T,[{sd:"left",y:0,h:17},{sd:"right",y:21,h:17}],S.segs.map(s=>({hand:s.hand,state:s.state,t0:s.t0,t1:s.t1})),S.objects)}));
+}
+function aiLine(k){if(!SERVER)return "";const e=LIB[k],j=e.job||{};
+  if(j.status==="running"||j.status==="queued")return `<div class="ai"><span><b>◆</b> ${j.status==="queued"?"AI naming queued":esc(j.phase||"working")}</span></div>`;
+  if(e.ai==="done")return `<div class="ai"><span><b>◆</b> objects named by AI</span></div>`;
+  if(j.status==="failed")return `<div class="ai"><span style="color:var(--hazard)">AI naming failed: ${esc((j.msg||"").slice(0,60))}</span><button class="btn" data-name="${esc(k)}">Retry</button></div>`;
+  return SRVINFO.ai_key?`<div class="ai"><span>detector names</span><button class="btn" data-name="${esc(k)}">Name with AI</button></div>`:`<div class="ai"><span>detector names · AI naming off</span></div>`}
+function vidLabel(e){if(!e.vid&&!e.hasVid)return "no video";if(!SERVER||!e.preview||e.preview==="ready")return "video ✓";return e.preview==="failed"?"video can't be converted":"preparing video…"}
+function jobPct(j){return j&&j.total?Math.min(99,Math.round(100*j.frame/j.total)):0}
+function jobBox(j){const st=j&&j.status;
+  if(st==="running")return `<div class="jobbar"><i style="width:${Math.max(3,jobPct(j))}%"></i><span><b>${jobPct(j)}%</b><span>${esc(j.phase||"")}</span></span></div>`;
+  if(st==="queued")return `<div class="ghost">queued · #${j.position}</div>`;
+  if(st==="failed")return `<div class="ghost">analysis failed</div>`;
+  return `<div class="ghost">ready to analyse</div>`}
+function jobText(j){if(j.status==="queued")return "waiting for the clip ahead";
+  if(j.total&&j.frame>50){const eta=j.elapsed/j.frame*(j.total-j.frame);return `frame ${j.frame}/${j.total} · ~${Math.max(1,Math.round(eta/60))} min left`}
+  return `${j.phase||"starting"} · ${j.elapsed||0} s`}
+$("cards").addEventListener("click",async e=>{
+  const an=e.target.closest("[data-an]"),cn=e.target.closest("[data-cancel]"),nm=e.target.closest("[data-name]");
+  if(nm){e.stopPropagation();const r=await api("api/name?clip="+encodeURIComponent(nm.dataset.name),"POST");if(!r)toast("Could not start AI naming.");poll(true);return}
+  if(an){e.stopPropagation();await api("api/analyse?clip="+encodeURIComponent(an.dataset.an),"POST");poll(true);return}
+  if(cn){e.stopPropagation();await api("api/cancel?clip="+encodeURIComponent(cn.dataset.cancel),"POST");poll(true);return}
+  const b=e.target.closest(".ccard[data-k]");if(b)openClip(b.dataset.k).then(()=>setView("overview"))});
+$("cards").addEventListener("keydown",e=>{if(e.key==="Enter"){const b=e.target.closest(".ccard[data-k]");if(b)b.click()}});
+
+// ============================================================ local server mode (python app.py)
+let SERVER=false,SRVINFO={},pollT=0,lastSig="";
+async function api(path,method="GET"){try{const r=await fetch(path,{method});return r.ok?await r.json():null}catch(e){return null}}
+async function connectServer(){
+  if(!/^https?:/.test(location.protocol))return false;
+  const info=await api("api/ping");if(!info||info.app!=="griptrace")return false;
+  SERVER=true;SRVINFO=info;
+  $("loadBtn").innerHTML='<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Add clip';
+  $("loadBtn").onclick=()=>$("addClip").click();
+  $("fleetActs").classList.remove("hidden");
+  await poll(true);return true;
+}
+async function poll(force){
+  clearTimeout(pollT);const rows=await api("api/clips");
+  if(rows){
+    let changed=false;
+    for(const r of rows){const e=LIB[r.stem]??={};
+      e.hasVid=!!r.video;
+      if(r.video&&(r.preview==="ready"||r.preview==="failed")){const url="video/"+encodeURIComponent(r.stem)+"?v="+r.vver;
+        if(!e.vid||e.vid.url!==url){const had=!!(e.vid&&e.vid.url);e.vid={name:r.video,url};changed=true;
+          if(D&&STEM===r.stem){const t=virtualT;setVideo(e.vid);virtualT=t;toast("Video ready.")}}
+      }
+      if(r.video){e.mb=r.video_mb;if(e.preview!==r.preview){e.preview=r.preview;changed=true}}
+      if(e.ai!==r.ai){e.ai=r.ai;changed=true}
+      if(e.check!==r.check){e.check=r.check;changed=true}
+      const reopen=r.results&&e.res&&e.rmtime&&e.rmtime!==r.rmtime&&D&&STEM===r.stem;
+      if(r.results&&(!e.res||e.rmtime!==r.rmtime)){e.res={remote:true,name:r.stem+".results.json",text:()=>fetch("api/results/"+encodeURIComponent(r.stem)).then(x=>x.text())};e.rmtime=r.rmtime;e.S=null;changed=true}
+      if(reopen){const v=view;openClip(r.stem).then(()=>{setView(v);toast(`${r.stem} updated with AI names.`)})}
+      if(!r.results&&e.res&&e.res.remote){delete e.res;e.S=null;changed=true}
+      const wasRunning=e.job&&(e.job.status==="running"||e.job.status==="queued");e.job=r.job;
+      if(wasRunning&&r.job&&r.job.status==="done")toast(`${r.stem} is ready — open it from Clips.`);
+    }
+    for(const k of Object.keys(LIB))if(LIB[k].hasVid&&!rows.find(r=>r.stem===k)){delete LIB[k];changed=true}
+    const sig=JSON.stringify(rows.map(r=>[r.stem,r.results,r.rmtime,r.video,r.preview,r.ai,r.check,r.job&&r.job.status,r.job&&r.job.position,r.job&&r.job.phase]));
+    if(sig!==lastSig||changed||force){lastSig=sig;await afterAdd();if(view==="fleet")buildFleet()}
+    else if(view==="fleet"){for(const r of rows){if(!r.job)continue;const card=document.querySelector(`.ccard[data-p="${CSS.escape(r.stem)}"]`);if(!card)continue;
+      card.querySelector(".jb").innerHTML=jobBox(r.job);const jt=card.querySelector(".jt");if(jt&&(r.job.status==="running"||r.job.status==="queued"))jt.textContent=jobText(r.job)}}
+    $("keyNote").classList.toggle("hidden",!!SRVINFO.ai_key);
+    if(!SRVINFO.ai_key)$("keyNote").innerHTML=`<b>AI object naming is off.</b> Save your Anthropic API key as the only line of <code>api_key.txt</code> in <code>${esc((SRVINFO.key_file||"api_key.txt").replace(/[\\/]api_key\.txt$/,""))}</code>, then close and restart <code>start_app.bat</code>. Hands, grabs and timings work without it.`;
+    const busy=rows.some(r=>(r.job&&(r.job.status==="running"||r.job.status==="queued"))||(r.video&&(r.preview==="making"||r.preview==="waiting")));
+    $("srvNote").classList.toggle("hidden",!busy);
+    if(busy){const r=rows.find(r=>r.job&&r.job.status==="running"),pv=rows.filter(r=>r.video&&r.preview!=="ready"&&r.preview!=="failed").length;
+      $("srvNote").textContent=[r?(r.job.kind==="name"?`AI is naming objects in ${r.stem}.`:`Analysing ${r.stem} in the background.`):"",pv?`Preparing ${pv} video${pv>1?"s":""} for the browser (H.265 → H.264).`:"","You can keep using the app."].filter(Boolean).join(" ")}
+    pollT=setTimeout(poll,busy?1500:8000);
+  }else pollT=setTimeout(poll,8000);
+}
+$("addClipBtn").onclick=()=>$("addClip").click();
+$("anAll").onclick=async()=>{for(const k of Object.keys(LIB).filter(k=>!LIB[k].res&&LIB[k].hasVid&&!(LIB[k].job&&/running|queued/.test(LIB[k].job.status))))await api("api/analyse?clip="+encodeURIComponent(k),"POST");poll(true)};
+$("addClip").onchange=async e=>{const fs=[...e.target.files];e.target.value="";for(const f of fs)await uploadClip(f);poll(true)};
+function uploadClip(f){return new Promise(res=>{
+  const x=new XMLHttpRequest();x.open("POST",`api/upload?analyse=1&name=${encodeURIComponent(f.name)}`);
+  x.upload.onprogress=ev=>{if(ev.lengthComputable)toast(`Adding ${f.name} · ${Math.round(100*ev.loaded/ev.total)}%`)};
+  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(_){}toast(x.status===200?`${f.name} added — analysis started.`:`Could not add ${f.name}: ${r.error||x.status}`);res()};
+  x.onerror=()=>{toast(`Could not add ${f.name}.`);res()};x.send(f)})}
+
+// ============================================================ audit
+const OPTS=[["C","Correct"],["M","Missed"],["W","Wrong side"],["B","Bad points"],["F","False hand"],["N","No hand, none drawn"]];
+const KEYS={left:["1","2","3","4","5","6"],right:["q","w","e","r","t","y"]};
+let LS=[],LP=0,LAB={};
+function sampleFrames(n){let h=2166136261;for(const ch of D.meta.clip){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)>>>0}
+  const rnd=()=>{h^=h<<13;h>>>=0;h^=h>>17;h^=h<<5;h>>>=0;return h/4294967296};const out=[],seg=N/n;for(let j=0;j<n;j++)out.push(Math.min(N-1,Math.floor(j*seg+rnd()*seg)));return out}
+const lkey=()=>"griptrace-labels-"+D.meta.clip;
+function loadLabels(){LS=sampleFrames(Math.min(100,N));LAB={};try{LAB=JSON.parse(localStorage.getItem(lkey())||"{}")}catch(e){}
+  ["qL","qR"].forEach((id,n)=>{const sd=SIDES[n];$(id).innerHTML=OPTS.map(([c,t],j)=>`<button data-c="${c}">${t}<span>${KEYS[sd][j].toUpperCase()}</span></button>`).join("");
+    $(id).onclick=e=>{const b=e.target.closest("button");if(b)setLabel(sd,b.dataset.c)}});
+  const first=LS.findIndex(f=>!(LAB[f]&&LAB[f].left&&LAB[f].right));LP=first<0?0:first}
+function saveLabels(){try{localStorage.setItem(lkey(),JSON.stringify(LAB))}catch(e){}}
+function setLabel(sd,c){const f=LS[LP];LAB[f]=LAB[f]||{};LAB[f][sd]=c;saveLabels();if(LAB[f].left&&LAB[f].right&&LP<LS.length-1)setTimeout(()=>{LP++;labRefresh()},150);labRefresh()}
+function labMetrics(){const c={C:0,M:0,W:0,B:0,F:0,N:0};let frames=0;for(const f of LS){const l=LAB[f];if(!l)continue;if(l.left&&l.right)frames++;for(const sd of SIDES)if(l[sd])c[l[sd]]++}
+  const det=c.C+c.W+c.B,all=c.C+c.M+c.W+c.B+c.F;return {frames,acc:all?100*c.C/all:null,recall:det+c.M?100*det/(det+c.M):null,side:det?100*(c.C+c.B)/det:null,prec:det+c.F?100*det/(det+c.F):null}}
+function labRefresh(){if(view!=="audit"||!D)return;const f=LS[LP];seekFrame(f);
+  $("labPos").textContent=`${LP+1} / ${LS.length} · frame ${f}`;const done=LS.filter(x=>LAB[x]&&LAB[x].left&&LAB[x].right).length;
+  $("labBar").style.width=`${done/LS.length*100}%`;$("labDone").textContent=`${done} of ${LS.length} frames judged · saved in this browser`;
+  ["qL","qR"].forEach((id,n)=>[...$(id).children].forEach(b=>b.classList.toggle("on",(LAB[f]||{})[SIDES[n]]===b.dataset.c)));
+  const m=labMetrics(),p=v=>v==null?"—":fmt(v,0)+"%";
+  $("labStats").innerHTML=`<div><b>${p(m.acc)}</b><span>fully correct</span></div><div><b>${p(m.recall)}</b><span>hands found</span></div><div><b>${p(m.side)}</b><span>left/right right</span></div><div><b>${p(m.prec)}</b><span>no false hands</span></div>`;dirty=true}
+function importLabels(d){if(!D||d.clip!==D.meta.clip){toast("Those labels are for "+d.clip);return}LAB=d.labels;saveLabels();labRefresh()}
+$("labPrev").onclick=()=>{LP=Math.max(0,LP-1);labRefresh()};$("labNext").onclick=()=>{LP=Math.min(LS.length-1,LP+1);labRefresh()};
+$("labExport").onclick=()=>download(`${STEM}.labels.json`,JSON.stringify({clip:D.meta.clip,frames:LS,labels:LAB,summary:labMetrics()},null,1),"application/json");
+
+// ============================================================ keys
+addEventListener("keydown",e=>{
+  if(!D||e.target.tagName==="SELECT"||e.target.tagName==="INPUT"||e.metaKey||e.ctrlKey||e.altKey)return;const k=e.key.toLowerCase();
+  if(view==="audit"){const iL=KEYS.left.indexOf(k),iR=KEYS.right.indexOf(k);
+    if(iL>=0)return setLabel("left",OPTS[iL][0]);if(iR>=0)return setLabel("right",OPTS[iR][0]);
+    if(k==="arrowright"||k==="enter"){LP=Math.min(LS.length-1,LP+1);labRefresh();e.preventDefault()}if(k==="arrowleft"){LP=Math.max(0,LP-1);labRefresh();e.preventDefault()}return}
+  if(k===" "){toggle();e.preventDefault()}
+  else if(view==="replay"&&(k==="arrowleft"||k===",")){pause();seekFrame(cur()-(e.shiftKey?Math.round(fps):1));e.preventDefault()}
+  else if(view==="replay"&&(k==="arrowright"||k===".")){pause();seekFrame(cur()+(e.shiftKey?Math.round(fps):1));e.preventDefault()}
+  else if(k>="1"&&k<="4"&&view!=="audit"){setView(["overview","replay","quality","audit"][+k-1])}
+});
+
+// ============================================================ main loop
+let lastI=-1,lastEv=-1;
+function loop(now){
+  requestAnimationFrame(loop);
+  if(!D)return;
+  if(videoReady&&!vid.paused){virtualT=vid.currentTime;dirty=true;if(vid.currentTime>=vid.duration-0.06){vid.pause();if(virtualT*fps<N-2){vPlaying=true;vLast=now;setPlayIcon(true)}}}
+  else if(vPlaying){virtualT+=(now-vLast)/1000*(+$("speed").value);vLast=now;if(virtualT*fps>=N-1){virtualT=(N-1)/fps;vPlaying=false;setPlayIcon(false)}dirty=true}
+  if(view!=="replay"&&view!=="audit")return;
+  const i=cur();if(i===lastI&&!dirty)return;lastI=i;dirty=false;
+  const src=vidCovers(i/fps)?vid:null;
+  if(view==="audit"){drawFrame($("cvL"),i,"ours",src,null);return}
+  drawFrame($("cvA"),i,"ours",src,null);if(show.split)drawFrame($("cvB"),i,"base",src,null);
+  $("tc").textContent=`${clock(i/fps,2)}  ·  F${String(i).padStart(5,"0")}`;
+  $("time").textContent=`${clock(i/fps,1)} / ${clock(N/fps)}`;
+  $("alertA").classList.toggle("hidden",!inSafety(i/fps));
+  drawTimeline();hcard($("hcL"),"left",i);hcard($("hcR"),"right",i);
+  let n=-1;const t=i/fps;for(let j=0;j<EV.length;j++){if(EV[j].t<=t+1e-6)n=j;else break}
+  if(n!==lastEv){lastEv=n;const lis=$("rLog").children;[...lis].forEach((li,j)=>li.classList.toggle("now",j===n));const li=lis[n];if(li){const box=li.closest(".pb");box.scrollTop=li.offsetTop-box.offsetTop-box.clientHeight/2}}
+}
+requestAnimationFrame(loop);
+
+// ============================================================ welcome animation: a hand closing on a part
+let demoRaf=0;
+function demoHand(){
+  const cv=$("demoHand"),c=cv.getContext("2d"),W=cv.width,H=cv.height;
+  // 21 keypoints (wrist, thumb x4, index x4, middle x4, ring x4, pinky x4) in a unit box: open hand and gripping hand
+  const OPEN=[[.45,.95],[.58,.86],[.68,.76],[.76,.67],[.83,.60],[.58,.58],[.61,.44],[.63,.35],[.645,.27],[.49,.56],[.495,.40],[.50,.30],[.505,.21],
+    [.41,.58],[.39,.44],[.38,.35],[.37,.27],[.34,.63],[.31,.53],[.295,.46],[.28,.40]];
+  const GRIP=[[.45,.95],[.57,.86],[.64,.75],[.66,.64],[.63,.55],[.58,.58],[.60,.46],[.615,.39],[.60,.45],[.49,.56],[.50,.43],[.505,.36],[.50,.43],
+    [.41,.58],[.40,.46],[.39,.40],[.395,.46],[.34,.63],[.32,.53],[.31,.48],[.315,.53]];
+  function frame(t){
+    demoRaf=requestAnimationFrame(frame);
+    const ph=(Math.sin(t/1200-1.2)+1)/2,g=Math.min(1,Math.max(0,(ph-.2)/.55)),e=g*g*(3-2*g),held=e>.92;
+    c.clearRect(0,0,W,H);c.strokeStyle="#1b2126";c.lineWidth=1;
+    for(let x=0;x<=W;x+=45){c.beginPath();c.moveTo(x+.5,0);c.lineTo(x+.5,H);c.stroke()}for(let y=0;y<=H;y+=45){c.beginPath();c.moveTo(0,y+.5);c.lineTo(W,y+.5);c.stroke()}
+    const S=W*.9,ox=W*.05,oy=H*.02+(1-e)*H*.12,P=OPEN.map((p,j)=>[ox+(p[0]+(GRIP[j][0]-p[0])*e)*S,oy+(p[1]+(GRIP[j][1]-p[1])*e)*S]);
+    // the part (a tube) sits under the curled fingers
+    const bx=W*.22,by=H*.35,bw=W*.56,bh=H*.075,col=held?COL.right:"#3a434c";
+    c.save();c.fillStyle="#14423d";rr(c,bx+20,by+bh*.18,bw-40,bh*.64,14);c.fill();c.fillStyle="#2ec4b633";c.fillRect(bx+30,by+bh*.28,bw-60,bh*.14);c.restore();
+    c.save();c.strokeStyle=col;c.lineWidth=4;if(held){c.shadowColor=col;c.shadowBlur=24}brackets(c,bx,by-14,bw,bh+28,36);c.restore();
+    c.save();c.fillStyle=COL.left;c.globalAlpha=.14;c.beginPath();PALM.forEach((j,q)=>q?c.lineTo(...P[j]):c.moveTo(...P[j]));c.closePath();c.fill();c.restore();
+    c.save();c.strokeStyle="rgba(0,0,0,.6)";c.lineWidth=12;c.lineCap="round";for(const [a,b] of BONES){c.beginPath();c.moveTo(...P[a]);c.lineTo(...P[b]);c.stroke()}c.restore();
+    c.save();c.strokeStyle=COL.left;c.lineWidth=6;c.lineCap="round";for(const [a,b] of BONES){c.beginPath();c.moveTo(...P[a]);c.lineTo(...P[b]);c.stroke()}c.restore();
+    P.forEach((p,j)=>{c.beginPath();c.fillStyle=TIPS.includes(j)?COL.left:"#f4f1ea";c.arc(p[0],p[1],TIPS.includes(j)?10:6,0,7);c.fill()});
+    if(held){const tp=[4,8,12].map(j=>P[j]),tx=tp.reduce((a,p)=>a+p[0],0)/3,ty=tp.reduce((a,p)=>a+p[1],0)/3;c.save();c.strokeStyle=COL.left;c.lineWidth=3;c.setLineDash([6,8]);c.beginPath();c.moveTo(tx,ty);c.lineTo(bx+bw/2,by+bh/2);c.stroke();c.restore()}
+    tag(c,"L",held?"HOLDING  GREEN TUBE":"FREE",W*.30,by-40,COL.left,2.1);
+    // mini activity strip
+    const ty=H-56,tw=W-120,tx=60,cyc=(t/1200)/(2*Math.PI),prog=cyc%1;
+    c.font=`600 18px ${FONT_M}`;c.fillStyle=COL.muted;c.fillText("LEFT HAND · ACTIVITY",tx,ty-14);c.fillStyle="#1b2026";c.fillRect(tx,ty,tw,24);
+    for(let q=0;q<6;q++){const a=q/6+.06,b2=q/6+.14;if(a<prog){c.fillStyle=COL.left;c.fillRect(tx+a*tw,ty,(Math.min(b2,prog)-a)*tw,24)}}
+    c.fillStyle="#f4f1ea";c.fillRect(tx+prog*tw-1.5,ty-6,3,36);
+  }
+  demoRaf=requestAnimationFrame(frame);
+}
+function stopDemo(){cancelAnimationFrame(demoRaf)}
+demoHand();
+connectServer();
+
+</script>
+</body>
+</html>
