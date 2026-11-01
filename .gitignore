@@ -1,0 +1,30 @@
+# ---- DATA RULES: never commit footage, frames or outputs ----
+egohack-data/
+clips/
+clips_480p/
+outputs/
+outputs_old/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+!docs/*.svg
+*.results.json
+hands.jsonl
+contacts.csv
+labels*.json
+# models (downloaded by prep.py)
+models/
+*.pt
+*.task
+# python
+__pycache__/
+*.pyc
+.venv/
+egohack/
+.env
+api_key.txt
