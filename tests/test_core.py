@@ -263,6 +263,30 @@ def test_agent_without_key_is_skipped():
             os.environ["ANTHROPIC_API_KEY"] = old_env
 
 
+def test_drop_duplicates_keeps_the_real_hand():
+    """Both slots on one hand: the side that was there before and carries on after keeps it."""
+    from egohand.postprocess import drop_duplicates
+    L = S.hand_pts("left", np.array([200, 300.0]), 90)
+    Rr = S.hand_pts("right", np.array([440, 300.0]), 90)
+    mk = lambda kp, src="mp": Tracked(kp.copy(), .9, src, "", 0)
+    # gap filling slid the right track onto the left hand for one frame
+    h = [{"left": mk(L), "right": mk(Rr)} for _ in range(5)]
+    h[2]["right"] = mk(L + 3, "interp")
+    assert drop_duplicates(h, 640, 360) == 1 and h[2]["right"] is None and h[2]["left"] is not None
+    # MediaPipe reported the left hand twice for two frames
+    h = [{"left": mk(L), "right": mk(Rr)} for _ in range(5)]
+    h[1]["right"] = mk(L + 2); h[2]["right"] = mk(L + 1)
+    assert drop_duplicates(h, 640, 360) == 2 and h[1]["right"] is None and h[2]["left"] is not None
+    # real case (bench clip, 24.5 s): sideways right hand, the LEFT track jumped onto it while the
+    # real left hand was lost; afterwards only the right track carries on there -> keep RIGHT
+    side = np.stack([np.linspace(440, 360, 21), np.full(21, 300.0) + np.linspace(0, 5, 21)], 1)
+    h = [{"left": mk(L), "right": mk(side)}, {"left": mk(L), "right": mk(side)},
+         {"left": mk(side + 2, "interp"), "right": mk(side)}, {"left": mk(side + 1), "right": mk(side, "fill")},
+         {"left": None, "right": mk(side)}, {"left": None, "right": mk(side)}]
+    assert drop_duplicates(h, 640, 360) == 2
+    assert h[2]["left"] is None and h[3]["left"] is None and h[2]["right"] is not None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
