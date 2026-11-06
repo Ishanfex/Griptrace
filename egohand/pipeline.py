@@ -107,6 +107,7 @@ def run(clip, out_dir, cfg, hand_detector=None, object_detector=None, log=print,
     with T("post"):
         n_side_fix = P.fix_sides(hist, tracker.calibrated, W, H)
         P.fill_gaps(hist, cfg.max_gap, cfg.gap_max_jump)
+        n_dupes = P.drop_duplicates(hist, W, H)
         P.smooth(hist, times, cfg, (W ** 2 + H ** 2) ** 0.5)
 
         obj_frames = otrack.boxes_per_frame(n_proc, cfg.obj_ttl)
@@ -154,7 +155,7 @@ def run(clip, out_dir, cfg, hand_detector=None, object_detector=None, log=print,
     for s in safety:
         s.pop("k0", None), s.pop("k1", None)
     extra = {"dark_frames": n_dark, "side_repairs_online": len(tracker.repairs),
-             "side_fixes_offline": n_side_fix, "rejected_small_hands": tracker.n_rejected_small,
+             "side_fixes_offline": n_side_fix, "duplicates_removed": n_dupes, "rejected_small_hands": tracker.n_rejected_small,
              "rejected_coworker_hands": tracker.n_rejected_other,
              "camera_motion_ok_pct": round(100 * cam.ok_frames / max(1, n_proc - 1), 1),
              "grabs": sum(s["state"] == "portable" for s in segs),
